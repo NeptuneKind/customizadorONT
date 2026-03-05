@@ -1,0 +1,5 @@
+requests>=2.31.0
+urllib3>=2.2.0
+selenium>=4.20.0
+customtkinter>=5.2.2
+pyinstaller>=6.5.0

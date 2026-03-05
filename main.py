@@ -14,8 +14,11 @@ from typing import Any, Dict, Optional, Callable
 from config.settings import load_or_init_settings, resolve_headless
 from config.logging import setup_logging, get_logger
 
+from src.backend.core.monitoring import wait_for_device_ip, detect_vendor_and_model
+from src.backend.core.report import write_json_report
+
 # ===================================================================
-# Paths del proyecto
+# Paths del proyecto e IPs por defecto
 # ===================================================================
 PROJECT_ROOT = Path(__file__).resolve().parent
 CONFIG_DIR = PROJECT_ROOT / "config"
@@ -83,9 +86,16 @@ def main() -> int:
     args = parser.parse_args()
 
     setup_logging(debug=bool(args.debug), logs_dir=LOGS_DIR)
+    print("LOGGING SETUP DONE") # debug
 
     settings = load_or_init_settings(PROJECT_ROOT = PROJECT_ROOT, CONFIG_DIR = CONFIG_DIR)
     headless = resolve_headless(settings, args)
+
+    ip = wait_for_device_ip(DEFAULT_IPS, overall_timeout_s=60)
+    det = detect_vendor_and_model(ip)
+
+    payload = {"ok": True, "ip": det.ip, "vendor": det.vendor, "model_code": det.model_code, "product_name": det.product_name}
+    write_json_report(reports_day_dir=today_reports_dir(), payload=payload, vendor=det.vendor, ip=det.ip, model_code=det.model_code)
 
     log = get_logger("MAIN")
     log.info("Boot OK")
@@ -96,3 +106,6 @@ def main() -> int:
     # Temporary default behavior for debug runs:
     # Later this will start UI or run customization flow.
     return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
