@@ -31,5 +31,5 @@ def write_json_report(
     with out_path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
 
-    log_rep.info("Report saved: %s", out_path)
+    log_rep.info("Reporte guardado en: %s", out_path)
     return out_path
