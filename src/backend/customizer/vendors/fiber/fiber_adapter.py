@@ -5,7 +5,7 @@ from ...context import CustomizationContext
 from ...models import CustomizationPlan, CustomizationResult, StepResult, WifiBand
 from ...progress import ProgressCallback, ProgressEvent
 
-from .navigator import FiberhomeNavigator
+from .fiber_navigator import FiberhomeNavigator
 
 
 class FiberhomeAdapter:

@@ -1,0 +1,535 @@
+from __future__ import annotations
+
+import time
+from typing import Optional, Sequence, Tuple
+
+from selenium.webdriver.common.by import By
+from selenium.webdriver.remote.webdriver import WebDriver, WebElement
+from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+
+Locator = Tuple[str, str]
+
+
+class ZTENavigator:
+    """
+    Navegador Selenium para GUI ZTE.
+    Basado en la lógica validada del tester, pero desacoplado de mixins.
+    """
+
+    def __init__(self, driver: WebDriver, base_url: str, timeout_s: int = 10) -> None:
+        self.driver = driver
+        self.base_url = base_url.rstrip("/")
+        self.timeout_s = timeout_s
+
+    # ==========================================================
+    # Helpers base
+    # ==========================================================
+    def open_root(self) -> None:
+        self.driver.switch_to.default_content()
+        self.driver.get(f"{self.base_url}/")
+
+    def _switch_to_default(self) -> None:
+        try:
+            self.driver.switch_to.default_content()
+        except Exception:
+            pass
+
+    def _find_in_current_context(self, by: str, value: str) -> Optional[WebElement]:
+        try:
+            el = self.driver.find_element(by, value)
+            return el
+        except NoSuchElementException:
+            return None
+
+    def find_element_anywhere(
+        self,
+        selectors: Sequence[Locator],
+        desc: str,
+        timeout_s: Optional[int] = None,
+        must_be_displayed: bool = True,
+    ) -> Optional[WebElement]:
+        """
+        Busca un elemento en documento principal y en frames/iframes.
+        """
+        timeout = timeout_s or self.timeout_s
+        end_time = time.time() + timeout
+        last_error: Optional[Exception] = None
+
+        while time.time() < end_time:
+            self._switch_to_default()
+
+            # Documento principal
+            for by, sel in selectors:
+                try:
+                    el = self._find_in_current_context(by, sel)
+                    if el is None:
+                        continue
+                    if must_be_displayed and not el.is_displayed():
+                        continue
+                    return el
+                except StaleElementReferenceException as exc:
+                    last_error = exc
+                except Exception as exc:
+                    last_error = exc
+
+            # Frames / iframes
+            try:
+                frames = self.driver.find_elements(By.CSS_SELECTOR, "frame, iframe")
+            except Exception:
+                frames = []
+
+            for frame in frames:
+                try:
+                    self._switch_to_default()
+                    self.driver.switch_to.frame(frame)
+                except Exception:
+                    continue
+
+                for by, sel in selectors:
+                    try:
+                        el = self._find_in_current_context(by, sel)
+                        if el is None:
+                            continue
+                        if must_be_displayed and not el.is_displayed():
+                            continue
+                        return el
+                    except StaleElementReferenceException as exc:
+                        last_error = exc
+                    except Exception as exc:
+                        last_error = exc
+
+            time.sleep(0.25)
+
+        if last_error is not None:
+            raise RuntimeError(f"No se encontró {desc}. Último error: {last_error}")
+        raise RuntimeError(f"No se encontró {desc} en {timeout}s")
+
+    def click_anywhere(
+        self,
+        selectors: Sequence[Locator],
+        desc: str,
+        timeout_s: Optional[int] = None,
+    ) -> WebElement:
+        el = self.find_element_anywhere(selectors=selectors, desc=desc, timeout_s=timeout_s)
+        try:
+            self.driver.execute_script(
+                "arguments[0].scrollIntoView({block:'center', inline:'center'});",
+                el,
+            )
+        except Exception:
+            pass
+
+        try:
+            el.click()
+        except Exception:
+            self.driver.execute_script("arguments[0].click();", el)
+
+        return el
+
+    def _set_input_value(self, el: WebElement, value: str) -> None:
+        try:
+            self.driver.execute_script(
+                """
+                arguments[0].scrollIntoView({block:'center', inline:'center'});
+                arguments[0].focus();
+                arguments[0].value = '';
+                """,
+                el,
+            )
+        except Exception:
+            pass
+
+        try:
+            el.clear()
+        except Exception:
+            pass
+
+        try:
+            el.send_keys(value)
+        except Exception:
+            self.driver.execute_script(
+                """
+                arguments[0].value = arguments[1];
+                arguments[0].dispatchEvent(new Event('input', {bubbles:true}));
+                arguments[0].dispatchEvent(new Event('change', {bubbles:true}));
+                """,
+                el,
+                value,
+            )
+
+    def _get_input_value(self, el: WebElement) -> str:
+        try:
+            value = el.get_attribute("value")
+            return (value or "").strip()
+        except Exception:
+            return ""
+
+    # ==========================================================
+    # Login
+    # ==========================================================
+    def login_default(self, username: str = "root", password: str = "admin") -> None:
+        self.open_root()
+
+        username_field = self.find_element_anywhere(
+            selectors=[
+                (By.ID, "Frm_Username"),
+                (By.NAME, "Frm_Username"),
+                (By.ID, "username"),
+                (By.NAME, "username"),
+                (By.ID, "user"),
+                (By.NAME, "user"),
+                (By.ID, "user_name"),
+                (By.NAME, "user_name"),
+                (By.CSS_SELECTOR, "input[type='text']"),
+            ],
+            desc="campo username ZTE",
+            timeout_s=self.timeout_s,
+        )
+
+        password_field = self.find_element_anywhere(
+            selectors=[
+                (By.ID, "Frm_Password"),
+                (By.NAME, "Frm_Password"),
+                (By.ID, "password"),
+                (By.NAME, "password"),
+                (By.ID, "pass"),
+                (By.NAME, "pass"),
+                (By.ID, "loginpp"),
+                (By.NAME, "loginpp"),
+                (By.CSS_SELECTOR, "input[type='password']"),
+            ],
+            desc="campo password ZTE",
+            timeout_s=self.timeout_s,
+        )
+
+        self._set_input_value(username_field, username)
+        self._set_input_value(password_field, password)
+
+        login_button = self.find_element_anywhere(
+            selectors=[
+                (By.ID, "LoginId"),
+                (By.ID, "login_btn"),
+                (By.NAME, "login"),
+                (By.CSS_SELECTOR, "button[type='submit']"),
+                (By.CSS_SELECTOR, "input[type='submit']"),
+            ],
+            desc="botón login ZTE",
+            timeout_s=self.timeout_s,
+            must_be_displayed=False,
+        )
+
+        try:
+            self.driver.execute_script("arguments[0].click();", login_button)
+        except Exception:
+            login_button.click()
+
+        self.wait_session_ready()
+
+    def wait_session_ready(self, timeout_s: Optional[int] = None) -> None:
+        timeout = timeout_s or self.timeout_s
+        end_time = time.time() + timeout
+
+        while time.time() < end_time:
+            self._switch_to_default()
+
+            # Si ya aparece el menú principal, damos por válida la sesión
+            menu_selectors = [
+                (By.ID, "localnet"),
+                (By.ID, "internet"),
+                (By.ID, "homePage"),
+                (By.ID, "statusMgr"),
+                (By.ID, "wlanConfig"),
+            ]
+
+            for by, sel in menu_selectors:
+                try:
+                    el = self.driver.find_element(by, sel)
+                    if el is not None:
+                        return
+                except Exception:
+                    continue
+
+            # Si seguimos viendo el botón de login, todavía no entra
+            time.sleep(0.25)
+
+        raise RuntimeError("No fue posible confirmar sesión activa en ZTE")
+
+    # ==========================================================
+    # Navegación WLAN
+    # ==========================================================
+    def open_wifi_ssid(self, ssid_index: int) -> WebElement:
+        """
+        Navega a WLAN SSID Configuration y abre el SSID indicado.
+
+        Ejemplos:
+            open_wifi_ssid(0) -> SSID1 (2.4GHz)
+            open_wifi_ssid(3) -> SSID5 (5GHz)
+        """
+        # Llamar al helper de navegación a la página de SSID si no parece que ya estemos ahí
+        if not self._is_on_wifi_ssid_page():
+            self._ensure_wifi_ssid_page()
+        # Retornar el elemento de la sección del SSID indicado para luego interactuar con sus campos
+        return self._open_ssid_section(ssid_index)
+    
+    # Helper para verificar si ya estamos en la página de configuración de SSID sin navegar desde la raíz
+    def _is_on_wifi_ssid_page(self) -> bool:
+        """
+        Verifica si ya estamos en la pantalla WLAN SSID Configuration
+        sin volver a navegar desde la raíz.
+        """
+        try:
+            self._switch_to_default()
+
+            markers = [
+                (By.ID, "WLANSSIDConfBar"),
+                (By.ID, "instName_WLANSSIDConf:0"),
+            ]
+
+            for by, value in markers:
+                try:
+                    el = self.driver.find_element(by, value)
+                    if el is not None:
+                        return True
+                except Exception:
+                    continue
+
+            return False
+        except Exception:
+            return False
+
+    # Helper para navegar a la configuración de los SSID y sus contraseñas
+    def _ensure_wifi_ssid_page(self) -> None:
+        """
+        Navega hasta la página WLAN SSID Configuration.
+        Se puede llamar varias veces sin problema.
+        """
+
+        self.open_root()
+
+        # 1) Menú superior: Local Network
+        self.click_anywhere(
+            selectors=[
+                (By.ID, "localnet"),
+                (By.XPATH, "//*[@id='localnet' or @menupage='localNetStatus']"),
+            ],
+            desc="Local Network",
+            timeout_s=10,
+        )
+
+        # 2) Submenú: WLAN
+        self.click_anywhere(
+            selectors=[
+                (By.ID, "wlanConfig"),
+                (By.XPATH, "//*[@id='wlanConfig' or @menupage='wlanBasic']"),
+            ],
+            desc="WLAN",
+            timeout_s=10,
+        )
+
+        # 3) H1 desplegable: WLAN SSID Configuration
+        self.click_anywhere(
+            selectors=[
+                (By.ID, "WLANSSIDConfBar"),
+                (By.XPATH, "//*[@id='WLANSSIDConfBar']"),
+            ],
+            desc="WLAN SSID Configuration",
+        )
+
+        # 4) Esperar primer SSID
+        self.find_element_anywhere(
+            selectors=[
+                (By.ID, "instName_WLANSSIDConf:0"),
+                (By.XPATH, "//*[@id='instName_WLANSSIDConf:0']"),
+            ],
+            desc="instancia SSID1 2.4GHz",
+            timeout_s=8,
+            must_be_displayed=False,
+        )
+
+    # Helper para expandir la sección de un SSID (2.4 o 5 GHz) para mostrar sus campos
+    def _open_ssid_section(self, section_index: int) -> WebElement:
+        """
+        Expande la sección colapsable de un SSID en la vista WLAN SSID Configuration.
+
+        Ejemplos:
+        0 -> SSID1 (2.4GHz)
+        3 -> SSID5 (5GHz)
+        """
+        return self.click_anywhere(
+            selectors=[
+                (By.ID, f"instName_WLANSSIDConf:{section_index}"),
+                (By.XPATH, f"//*[@id='instName_WLANSSIDConf:{section_index}']"),
+                (
+                    By.XPATH,
+                    f"//a[@id='instName_WLANSSIDConf:{section_index}' and contains(@class,'collapsibleInst')]",
+                ),
+            ],
+            desc=f"sección SSID index={section_index}",
+            timeout_s=8,
+        )
+
+    # Helper para aplicar cambios en un SSID (2.4 o 5 GHz) haciendo click en su botón Apply específico
+    def _apply_wifi_band(self, index: int) -> WebElement:
+        """
+        Hace click en el botón Apply de la sección WiFi indicada.
+
+        Ejemplos:
+            0 -> Btn_apply_WLANSSIDConf:0
+            3 -> Btn_apply_WLANSSIDConf:3
+        """
+        btn = self.click_anywhere(
+            selectors=[
+                (By.ID, f"Btn_apply_WLANSSIDConf:{index}"),
+                (By.XPATH, f"//*[@id='Btn_apply_WLANSSIDConf:{index}']"),
+                (
+                    By.XPATH,
+                    f"//input[@type='button' and @id='Btn_apply_WLANSSIDConf:{index}' and @value='Apply']",
+                ),
+            ],
+            desc=f"botón Apply WiFi index={index}",
+            timeout_s=8,
+        )
+
+        time.sleep(3)
+        return btn
+
+    def _ssid_field_selectors(self, index: int) -> Sequence[Locator]:
+        return [
+            (By.ID, f"ESSID:{index}"),
+            (By.NAME, f"ESSID:{index}"),
+            (By.CSS_SELECTOR, f"[id='ESSID:{index}']"),
+            (By.XPATH, f"//*[@id='ESSID:{index}']"),
+        ]
+
+    def _password_field_selectors(self, index: int) -> Sequence[Locator]:
+        return [
+            (By.ID, f"KeyPassphrase:{index}"),
+            (By.NAME, f"KeyPassphrase:{index}"),
+            (By.CSS_SELECTOR, f"[id='KeyPassphrase:{index}']"),
+            (By.XPATH, f"//*[@id='KeyPassphrase:{index}']"),
+        ]
+
+    def _security_field_to_text(self, index: int) -> None:
+        try:
+            self.driver.execute_script(
+                """
+                var f = document.getElementById(arguments[0]);
+                if (f) { f.setAttribute('type', 'text'); }
+                """,
+                f"KeyPassphrase:{index}",
+            )
+        except Exception:
+            pass
+
+    def read_wifi_band(self, index: int) -> dict:
+        self._open_ssid_section(index)
+
+        ssid_el = self.find_element_anywhere(
+            selectors=self._ssid_field_selectors(index),
+            desc=f"campo SSID index={index}",
+            timeout_s=8,
+            must_be_displayed=False,
+        )
+
+        self._security_field_to_text(index)
+
+        password_el = self.find_element_anywhere(
+            selectors=self._password_field_selectors(index),
+            desc=f"campo password index={index}",
+            timeout_s=8,
+            must_be_displayed=False,
+        )
+
+        ssid_value = self._get_input_value(ssid_el)
+        password_value = self._get_input_value(password_el)
+
+        band = "2.4GHz" if index == 0 else "5GHz" if index == 3 else f"index_{index}"
+
+        return {
+            "index": index,
+            "band": band,
+            "ssid": ssid_value,
+            "password": password_value,
+        }
+
+    def update_wifi_band(
+    self,
+    index: int,
+    ssid: Optional[str] = None,
+    password: Optional[str] = None,
+) -> dict:
+        self._open_ssid_section(index)
+        current = self.read_wifi_band(index=index)
+
+        if ssid is not None:
+            ssid_el = self.find_element_anywhere(
+                selectors=self._ssid_field_selectors(index),
+                desc=f"campo SSID index={index}",
+                timeout_s=8,
+                must_be_displayed=False,
+            )
+            self._set_input_value(ssid_el, ssid)
+
+        if password is not None:
+            self._security_field_to_text(index)
+            password_el = self.find_element_anywhere(
+                selectors=self._password_field_selectors(index),
+                desc=f"campo password index={index}",
+                timeout_s=8,
+                must_be_displayed=False,
+            )
+            self._set_input_value(password_el, password)
+
+        # Hacer efectivo el cambio en la sección correspondiente
+        self._apply_wifi_band(index)
+
+        updated = self.read_wifi_band(index=index)
+
+        return {
+            "before": current,
+            "after": updated,
+        }
+    def save_wifi(self) -> None:
+        save_button = self.find_element_anywhere(
+            selectors=[
+                (By.ID, "Btn_apply"),
+                (By.ID, "btnApply"),
+                (By.NAME, "Btn_apply"),
+                (By.CSS_SELECTOR, "input[value='Apply']"),
+                (By.CSS_SELECTOR, "input[value='Save']"),
+                (By.XPATH, "//input[@type='button' and (@value='Apply' or @value='Save')]"),
+                (By.XPATH, "//button[contains(normalize-space(.),'Apply') or contains(normalize-space(.),'Save')]"),
+            ],
+            desc="botón Apply/Save WLAN",
+            timeout_s=8,
+            must_be_displayed=False,
+        )
+
+        try:
+            self.driver.execute_script("arguments[0].click();", save_button)
+        except Exception:
+            save_button.click()
+
+        time.sleep(1.5)
+
+        # Algunos firmwares muestran confirmación
+        try:
+            ok_btn = self.find_element_anywhere(
+                selectors=[
+                    (By.ID, "confirmOK"),
+                    (By.CSS_SELECTOR, "#confirmOK"),
+                    (By.XPATH, "//*[@id='confirmOK']"),
+                ],
+                desc="confirmación OK",
+                timeout_s=2,
+                must_be_displayed=False,
+            )
+            try:
+                self.driver.execute_script("arguments[0].click();", ok_btn)
+            except Exception:
+                ok_btn.click()
+        except Exception:
+            pass

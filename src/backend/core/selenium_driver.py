@@ -70,7 +70,7 @@ def build_chrome_driver(
     settings: Dict[str, Any],
     headless: bool,
     project_root: Path,
-    page_load_timeout_s: int = 15,
+    page_load_timeout_s: int = 8,
 ) -> webdriver.Chrome:
     """
     Crea un Chrome WebDriver.
@@ -99,6 +99,19 @@ def build_chrome_driver(
         raise FileNotFoundError(f"chromedriver.exe no encontrado: {driver_path}")
 
     chrome_options = Options()
+    chrome_options.page_load_strategy = "eager"
+
+    prefs = {
+        "credentials_enable_service": False,
+        "profile.password_manager_enabled": False,
+        "profile.default_content_setting_values.notifications": 2,
+        "safebrowsing.enabled": False,
+    }
+    chrome_options.add_experimental_option("prefs", prefs)
+
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option("useAutomationExtension", False)
 
     # Forzar chrome.exe del repo (si existe) para evitar mismatch con Chrome del sistema
     if chrome_bin_path and chrome_bin_path.exists():
@@ -123,5 +136,10 @@ def build_chrome_driver(
 
     log_sel.info("Iniciando ChromeDriver: %s headless=%s", str(driver_path), headless)
     driver = webdriver.Chrome(service=service, options=chrome_options)
+
+    # Timeouts bajos para que las operaciones bloqueadas suelten control mas rapido
     driver.set_page_load_timeout(page_load_timeout_s)
+    driver.set_script_timeout(8)
+    driver.implicitly_wait(0)
+
     return driver

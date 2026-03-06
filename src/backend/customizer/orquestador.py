@@ -46,6 +46,8 @@ def run_customization(
         driver=driver,
     )
 
+    interrupted = False
+
     try:
         # Obtener el adaptador de marca y aplicar el plan
         adapter = get_adapter(detected.vendor)
@@ -61,10 +63,30 @@ def run_customization(
         )
         progress(ProgressEvent(phase="DONE", message="Customización finalizada", data={"ok": result.ok}))
         return 0 if result.ok else 2
-    
+
+    except KeyboardInterrupt:
+        interrupted = True
+        raise
+
     finally:
-        try:
-            # Asegurar que el driver se cierra al final del proceso
-            driver.quit()
-        except Exception:
-            pass
+        if interrupted:
+            # Cierre rapido al abortar con Ctrl+C
+            try:
+                service = getattr(driver, "service", None)
+                if service is not None:
+                    service.stop()
+            except Exception:
+                pass
+
+            try:
+                proc = getattr(getattr(driver, "service", None), "process", None)
+                if proc is not None:
+                    proc.kill()
+            except Exception:
+                pass
+        else:
+            try:
+                # Cierre normal en flujo sin interrupcion
+                driver.quit()
+            except Exception:
+                pass

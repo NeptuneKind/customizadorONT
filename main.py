@@ -3,22 +3,23 @@
 # ===================================================================
 import os
 import sys
-import json
+#import json
 import argparse
 import logging
-from dataclasses import dataclass
+#from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Callable
+#from typing import Any, Dict, Optional, Callable
+#from contextlib import suppress
 
 from config.settings import load_or_init_settings, resolve_headless
 from config.logging import setup_logging, get_logger
 
-from src.backend.customizer.context import CustomizationContext
+#from src.backend.customizer.context import CustomizationContext
 from src.backend.customizer.models import CustomizationPlan, WifiPlan, WebCredentialsPlan, FirmwarePlan
 from src.backend.customizer.orquestador import run_customization
 from src.backend.core.monitoring import wait_for_device_ip, detect_vendor_and_model
-from src.backend.core.report import write_json_report
+#from src.backend.core.report import write_json_report
 
 # ===================================================================
 # Paths del proyecto e IPs por defecto
@@ -79,6 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-headless", action="store_true", help="Forzar Selenium visible.")
     return p
 
+
 # ===================================================================
 # Main
 # ===================================================================
@@ -86,89 +88,90 @@ def main() -> int:
     add_src_to_sys_path()
     ensure_directories()
 
-    parser = build_parser()
-    args = parser.parse_args()
+    try:
+        parser = build_parser()
+        args = parser.parse_args()
 
-    setup_logging(debug=bool(args.debug), logs_dir=LOGS_DIR)
-    print("LOGGING SETUP DONE") # debug
+        setup_logging(debug=bool(args.debug), logs_dir=LOGS_DIR)
 
-    settings = load_or_init_settings(PROJECT_ROOT = PROJECT_ROOT, CONFIG_DIR = CONFIG_DIR)
-    headless = resolve_headless(settings, args)
+        # Suprimir warnings ruidosos de urllib3 al abortar Selenium/ChromeDriver con Ctrl+C
+        logging.getLogger("urllib3.connectionpool").setLevel(logging.ERROR)
 
-    ip = wait_for_device_ip(DEFAULT_IPS, overall_timeout_s=60)
-    det = detect_vendor_and_model(ip)
-    model = (det.model_code or "").upper().strip()
+        print("LOGGING SETUP DONE")
 
-    # FiberHome
-    if det.model_code in ["MOD001", "MOD008"]:
-        # Armar el plan de customización
-        plan = CustomizationPlan(
-            wifi=WifiPlan(enabled=True, ssid_24="MiSSID_24", pass_24="MiPass_24"),
-            web_credentials=WebCredentialsPlan(enabled=False),
-            firmware=FirmwarePlan(enabled=False),
-        )
-        # Pedirle al orquestrador que corra el flujo de customización para FiberHome
-        run_customization(
-            settings=settings,
-            project_root=PROJECT_ROOT,
-            reports_day_dir=today_reports_dir(),
-            ips=[det.ip],
-            headless=headless,
-            plan=plan,
-            progress=lambda event: print(f"[PROGRESS] {event.phase} - {event.message} - {event.data}"),
-        )
-    # ZTE
-    elif model in ("MOD002", "MOD009"):
-        # Armar el plan de customización
-        plan = CustomizationPlan(
-            wifi=WifiPlan(enabled=True, ssid_24="MiSSID_24", pass_24="MiPass_24"),
-            web_credentials=WebCredentialsPlan(enabled=False),
-            firmware=FirmwarePlan(enabled=False),
-        )
-        # Pedirle al orquestrador que corra el flujo de customización para ZTE
-        run_customization(
-            settings=settings,
-            project_root=PROJECT_ROOT,
-            reports_day_dir=today_reports_dir(),
-            ips=[det.ip],
-            headless=headless,
-            plan=plan,
-            progress=lambda event: print(f"[PROGRESS] {event.phase} - {event.message} - {event.data}"),
-        )
-    # Huawei
-    elif model in ("MOD003", "MOD004", "MOD005", "MOD007"):
-        # Armar el plan de customización
-        plan = CustomizationPlan(
-            wifi=WifiPlan(enabled=True, ssid_24="MiSSID_24", pass_24="MiPass_24"),
-            web_credentials=WebCredentialsPlan(enabled=False),
-            firmware=FirmwarePlan(enabled=False),
-        )
-        # Pedirle al orquestrador que corra el flujo de customización para Huawei
-        run_customization(
-            settings=settings,
-            project_root=PROJECT_ROOT,
-            reports_day_dir=today_reports_dir(),
-            ips=[det.ip],
-            headless=headless,
-            plan=plan,
-            progress=lambda event: print(f"[PROGRESS] {event.phase} - {event.message} - {event.data}"),
-        )
-    # No soportado
-    else:
-        print(f"[WARN] Modelo no soportado aún: vendor={det.vendor} model_code={det.model_code} ip={det.ip}")
+        settings = load_or_init_settings(PROJECT_ROOT=PROJECT_ROOT, CONFIG_DIR=CONFIG_DIR)
+        headless = resolve_headless(settings, args)
 
-    payload = {"ok": True, "ip": det.ip, "vendor": det.vendor, "model_code": det.model_code, "product_name": det.product_name}
-    write_json_report(reports_day_dir=today_reports_dir(), payload=payload, vendor=det.vendor, ip=det.ip, model_code=det.model_code)
+        ip = wait_for_device_ip(DEFAULT_IPS, overall_timeout_s=60)
+        det = detect_vendor_and_model(ip)
+        model = (det.model_code or "").upper().strip()
 
-    # log = get_logger("MAIN")
-    # log.info("Boot OK")
-    # log.info("headless=%s", headless)
-    # log.info("settings_path=%s", (CONFIG_DIR / "settings.json"))
-    # log.info("reports_today=%s", today_reports_dir())
+        # FiberHome
+        if det.model_code in ["MOD001", "MOD008"]:
+            plan = CustomizationPlan(
+                wifi=WifiPlan(enabled=True, ssid_24="MiSSID_24", pass_24="MiPass_24"),
+                web_credentials=WebCredentialsPlan(enabled=False),
+                firmware=FirmwarePlan(enabled=False),
+            )
+            exit_code = run_customization(
+                settings=settings,
+                project_root=PROJECT_ROOT,
+                reports_day_dir=today_reports_dir(),
+                ips=[det.ip],
+                headless=headless,
+                plan=plan,
+                progress=lambda event: print(f"[PROGRESS] {event.phase} - {event.message} - {event.data}"),
+            )
+            return exit_code
 
-    # Temporary default behavior for debug runs:
-    # Later this will start UI or run customization flow.
-    return 0
+        # ZTE
+        elif model in ("MOD002", "MOD009"):
+            plan = CustomizationPlan(
+                wifi=WifiPlan(enabled=True, ssid_24="MiSSID_24", pass_24="MiPass_24"),
+                web_credentials=WebCredentialsPlan(enabled=False),
+                firmware=FirmwarePlan(enabled=False),
+            )
+            exit_code = run_customization(
+                settings=settings,
+                project_root=PROJECT_ROOT,
+                reports_day_dir=today_reports_dir(),
+                ips=[det.ip],
+                headless=headless,
+                plan=plan,
+                progress=lambda event: print(f"[PROGRESS] {event.phase} - {event.message} - {event.data}"),
+            )
+            return exit_code
+
+        # Huawei
+        elif model in ("MOD003", "MOD004", "MOD005", "MOD007"):
+            plan = CustomizationPlan(
+                wifi=WifiPlan(enabled=True, ssid_24="MiPepote_24", pass_24="MiPepito_24", ssid_5="XDDD", pass_5="XD"),
+                web_credentials=WebCredentialsPlan(enabled=False),
+                firmware=FirmwarePlan(enabled=False),
+            )
+            exit_code = run_customization(
+                settings=settings,
+                project_root=PROJECT_ROOT,
+                reports_day_dir=today_reports_dir(),
+                ips=[det.ip],
+                headless=headless,
+                plan=plan,
+                progress=lambda event: print(f"[PROGRESS] {event.phase} - {event.message} - {event.data}"),
+            )
+            return exit_code
+
+        else:
+            print(f"[WARN] Modelo no soportado aún: vendor={det.vendor} model_code={det.model_code} ip={det.ip}")
+            return 2
+
+    except KeyboardInterrupt:
+        print("\n[INTERRUPT] Ctrl+C detectado. Abortando ejecucion...")
+        print("[INTERRUPT] Cierre controlado delegado al finally del orquestador.")
+        return 130
+
+    except Exception as e:
+        print(f"[ERROR] Ejecucion fallida: {type(e).__name__} - {e}")
+        return 1
 
 if __name__ == "__main__":
     raise SystemExit(main())

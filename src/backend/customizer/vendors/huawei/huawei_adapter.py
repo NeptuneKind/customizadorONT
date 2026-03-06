@@ -15,7 +15,7 @@ from src.backend.customizer.models import (
 )
 from src.backend.customizer.progress import ProgressCallback, ProgressEvent
 from src.backend.customizer.vendors.base import BrandAdapter
-from src.backend.customizer.vendors.huawei.navigator import HuaweiNavigator
+from .huawei_navigator import HuaweiNavigator
 
 # ===================================================================
 # Clase y métodos

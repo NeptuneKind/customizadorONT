@@ -20,10 +20,10 @@ class WifiBand(str, Enum):
 @dataclass
 class WifiPlan:
     enabled: bool = False
-    ssid_24: str = ""
-    pass_24: str = ""
-    ssid_5: str = ""
-    pass_5: str = ""
+    ssid_24: str = None
+    pass_24: str = None
+    ssid_5: str = None
+    pass_5: str = None
 
 # Dataclass para representar el plan de credenciales web
 @dataclass
