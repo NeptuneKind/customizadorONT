@@ -31,6 +31,7 @@ class ZTEAdapter:
     def _emit(self, progress: ProgressCallback, phase: str, message: str, data: Optional[Dict[str, Any]] = None) -> None:
         progress(ProgressEvent(phase=phase, message=message, data=data))
 
+    # Método helper para normalizar valores de texto opcionales: None, strings vacíos o solo espacios se consideran None
     def _normalize_optional_text(self, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
@@ -38,6 +39,186 @@ class ZTEAdapter:
         value = str(value).strip()
         return value if value else None
 
+    # Método para crear una instancia de ZTENavigator
+    def _build_navigator(self, ctx: CustomizationContext) -> ZTENavigator:
+        return ZTENavigator(
+            driver=ctx.driver,
+            base_url=f"http://{ctx.ip}",
+            timeout_s=10,
+        )
+    
+    # Método que encapsula el login y espera sesión lista
+    def _do_login(
+        self,
+        navigator: ZTENavigator,
+        ctx: CustomizationContext,
+        progress: ProgressCallback,
+    ) -> None:
+        self._emit(progress, "LOGIN", "Abriendo GUI ZTE", {"ip": ctx.ip})
+        navigator._open_root()
+
+        self._emit(progress, "LOGIN", "Iniciando sesión con credenciales por defecto", None)
+        navigator._zte_login(username="root", password="admin")
+
+        self._emit(progress, "LOGIN", "Sesión iniciada, esperando menú principal", None)
+        navigator.wait_session_ready()
+    
+    # Método que aplica la parte de WiFi del plan, pero delega cada banda a _process_wifi_band()
+    def _apply_wifi_plan(
+        self,
+        navigator: ZTENavigator,
+        plan: CustomizationPlan,
+        result: ZTECustomizationResult,
+        progress: ProgressCallback,
+    ) -> None:
+        wifi_plan = getattr(plan, "wifi", None)
+        if wifi_plan is None or not getattr(wifi_plan, "enabled", False):
+            result.steps.append({
+                "step": "wifi_disabled",
+                "data": {"reason": "El plan no habilitó cambios WiFi"},
+            })
+            return
+
+        desired_ssid_24 = self._normalize_optional_text(getattr(wifi_plan, "ssid_24", None))
+        desired_pass_24 = self._normalize_optional_text(getattr(wifi_plan, "pass_24", None))
+        desired_ssid_5 = self._normalize_optional_text(getattr(wifi_plan, "ssid_5", None))
+        desired_pass_5 = self._normalize_optional_text(getattr(wifi_plan, "pass_5", None))
+
+        if (
+            desired_ssid_24 is None and desired_pass_24 is None and
+            desired_ssid_5 is None and desired_pass_5 is None
+        ):
+            result.steps.append({
+                "step": "wifi_skip",
+                "data": {"reason": "wifi.enabled=True pero no se recibieron valores a cambiar"},
+            })
+            return
+
+        if desired_ssid_24 is not None or desired_pass_24 is not None:
+            self._process_wifi_band(
+                navigator=navigator,
+                index=0,
+                desired_ssid=desired_ssid_24,
+                desired_password=desired_pass_24,
+                result=result,
+                progress=progress,
+            )
+
+        if desired_ssid_5 is not None or desired_pass_5 is not None:
+            try:
+                self._process_wifi_band(
+                    navigator=navigator,
+                    index=3,
+                    desired_ssid=desired_ssid_5,
+                    desired_password=desired_pass_5,
+                    result=result,
+                    progress=progress,
+                )
+            except Exception as exc:
+                result.steps.append({
+                    "step": "wifi_5_skip",
+                    "data": {"reason": str(exc)},
+                })
+
+    # Método que: navega a la banda -> lee estado actual -> aplica cambios -> lee estado final -> valida resultados
+    def _process_wifi_band(
+        self,
+        navigator: ZTENavigator,
+        index: int,
+        desired_ssid: Optional[str],
+        desired_password: Optional[str],
+        result: ZTECustomizationResult,
+        progress: ProgressCallback,
+    ) -> None:
+        band_label = "2.4GHz" if index == 0 else "5GHz" if index == 3 else f"index_{index}"
+        band_key = "24" if index == 0 else "5" if index == 3 else str(index)
+
+        # 1. Navegación
+        self._emit(
+            progress,
+            "WIFI",
+            f"Navegando a sección WiFi {band_label}",
+            {"ssid_index": index},
+        )
+        #navigator._open_wifi_ssid(index) # Se abre el toggle de la banda
+
+        # 2. Lectura inicial
+        self._emit(
+            progress,
+            "WIFI",
+            f"Leyendo estado actual WiFi {band_label}",
+            {"ssid_index": index},
+        )
+        before_data = navigator.read_wifi_band(index=index)
+        result.steps.append({
+            "step": f"wifi_{band_key}_before",
+            "data": before_data,
+        })
+
+        # 3. Cambio
+        self._emit(
+            progress,
+            "WIFI",
+            f"Aplicando cambios WiFi {band_label}",
+            {
+                "ssid_index": index,
+                "ssid": desired_ssid,
+                "password_set": desired_password is not None,
+            },
+        )
+        change_data = navigator.update_wifi_band(
+            index=index,
+            ssid=desired_ssid,
+            password=desired_password,
+        )
+        result.steps.append({
+            "step": f"wifi_{band_key}_change",
+            "data": change_data,
+        })
+
+        #navigator._open_wifi_ssid(index)
+
+        # 4. Validación final
+        self._emit(
+            progress,
+            "WIFI",
+            f"Validando lectura final WiFi {band_label}",
+            {"ssid_index": index},
+        )
+        after_data = navigator.read_wifi_band(index=index)
+        result.steps.append({
+            "step": f"wifi_{band_key}_after",
+            "data": after_data,
+        })
+
+        self._validate_wifi_band(
+            band_label=band_label,
+            after_data=after_data,
+            desired_ssid=desired_ssid,
+            desired_password=desired_password,
+            result=result,
+        )
+    
+    # Método para lectura comparando con los valores finales contra los deseados y agregando errores al resultado si no coinciden
+    def _validate_wifi_band(
+        self,
+        band_label: str,
+        after_data: Dict[str, Any],
+        desired_ssid: Optional[str],
+        desired_password: Optional[str],
+        result: ZTECustomizationResult,
+    ) -> None:
+        if desired_ssid is not None and after_data.get("ssid") != desired_ssid:
+            result.errors.append(
+                f"SSID {band_label} no coincide. Esperado='{desired_ssid}' obtenido='{after_data.get('ssid')}'"
+            )
+
+        if desired_password is not None and after_data.get("password") != desired_password:
+            result.errors.append(
+                f"Password {band_label} no coincide con el valor esperado"
+            )
+
+    # Método principal que aplica el plan completo usando el ZTENavigator y devuelve un resultado estructurado con toda la información relevante
     def apply(
         self,
         plan: CustomizationPlan,
@@ -59,167 +240,21 @@ class ZTEAdapter:
             result.errors.append("El contexto no contiene WebDriver inicializado")
             return result
 
-        navigator = ZTENavigator(
-            driver=ctx.driver,
-            base_url=f"http://{ctx.ip}",
-            timeout_s=10,
-        )
+        navigator = self._build_navigator(ctx)
 
         try:
-            self._emit(progress, "LOGIN", "Abriendo GUI ZTE", {"ip": ctx.ip})
-            navigator.open_root()
+            self._do_login(
+                navigator=navigator,
+                ctx=ctx,
+                progress=progress,
+            )
 
-            self._emit(progress, "LOGIN", "Iniciando sesión con credenciales por defecto", None)
-            navigator.login_default(username="root", password="admin")
-
-            self._emit(progress, "LOGIN", "Ensure session ready", None)
-            navigator.wait_session_ready()
-
-            wifi_plan = getattr(plan, "wifi", None)
-            if wifi_plan is not None and getattr(wifi_plan, "enabled", False):
-                self._emit(progress, "WIFI", "Abriendo SSID 2.4GHz", {"ssid_index": 0})
-                navigator.open_wifi_ssid(0)
-
-                self._emit(progress, "WIFI", "Leyendo estado actual de WiFi 2.4GHz", None)
-                wifi24_before = navigator.read_wifi_band(index=0)
-                result.steps.append({
-                    "step": "wifi_24_before",
-                    "data": wifi24_before,
-                })
-
-                desired_ssid_24 = self._normalize_optional_text(getattr(wifi_plan, "ssid_24", None))
-                desired_pass_24 = self._normalize_optional_text(getattr(wifi_plan, "pass_24", None))
-
-                desired_ssid_5 = self._normalize_optional_text(getattr(wifi_plan, "ssid_5", None))
-                desired_pass_5 = self._normalize_optional_text(getattr(wifi_plan, "pass_5", None))
-
-                changed_any = False
-
-                if desired_ssid_24 is not None or desired_pass_24 is not None:
-                    self._emit(
-                        progress,
-                        "WIFI",
-                        "Aplicando cambios WiFi 2.4GHz",
-                        {
-                            "ssid_24": desired_ssid_24,
-                            "pass_24_set": desired_pass_24 is not None,
-                        },
-                    )
-                    wifi24_change = navigator.update_wifi_band(
-                        index=0,
-                        ssid=desired_ssid_24,
-                        password=desired_pass_24,
-                    )
-                    result.steps.append({
-                        "step": "wifi_24_change",
-                        "data": wifi24_change,
-                    })
-                    changed_any = True
-
-                # 5 GHz opcional
-                if desired_ssid_5 is not None or desired_pass_5 is not None:
-                    self._emit(
-                        progress,
-                        "WIFI",
-                        "Preparando lectura/cambio de WiFi 5GHz",
-                        {"ssid_index": 3},
-                    )
-
-                    try:
-                        wifi5_before = navigator.read_wifi_band(index=3)
-                        result.steps.append({
-                            "step": "wifi_5_before",
-                            "data": wifi5_before,
-                        })
-
-                        self._emit(
-                            progress,
-                            "WIFI",
-                            "Intentando aplicar cambios WiFi 5GHz",
-                            {
-                                "ssid_5": desired_ssid_5,
-                                "pass_5_set": desired_pass_5 is not None,
-                            },
-                        )
-
-                        wifi5_change = navigator.update_wifi_band(
-                            index=3,
-                            ssid=desired_ssid_5,
-                            password=desired_pass_5,
-                        )
-                        result.steps.append({
-                            "step": "wifi_5_change",
-                            "data": wifi5_change,
-                        })
-                        changed_any = True
-                    except Exception as exc:
-                        result.steps.append({
-                            "step": "wifi_5_skip",
-                            "data": {"reason": str(exc)},
-                        })
-
-                if changed_any:
-                    self._emit(progress, "WIFI", "Validando lectura final WiFi 2.4GHz", None)
-                    wifi24_after = navigator.read_wifi_band(index=0)
-
-                    result.steps.append({
-                        "step": "wifi_24_after",
-                        "data": wifi24_after,
-                    })
-
-                    # Validación de 2.4 GHz
-                    if desired_ssid_24 is not None and wifi24_after.get("ssid") != desired_ssid_24:
-                        result.errors.append(
-                            f"SSID 2.4GHz no coincide. Esperado='{desired_ssid_24}' obtenido='{wifi24_after.get('ssid')}'"
-                        )
-
-                    if desired_pass_24 is not None and wifi24_after.get("password") != desired_pass_24:
-                        result.errors.append(
-                            "Password 2.4GHz no coincide con el valor esperado"
-                        )
-
-                    # Validación opcional de 5 GHz
-                    if desired_ssid_5 is not None or desired_pass_5 is not None:
-                        try:
-                            self._emit(progress, "WIFI", "Abriendo SSID 5GHz para validación final", {"ssid_index": 3})
-                            wifi5_after = navigator.read_wifi_band(index=3)
-
-                            result.steps.append({
-                                "step": "wifi_5_after",
-                                "data": wifi5_after,
-                            })
-
-                            if desired_ssid_5 is not None and wifi5_after.get("ssid") != desired_ssid_5:
-                                result.errors.append(
-                                    f"SSID 5GHz no coincide. Esperado='{desired_ssid_5}' obtenido='{wifi5_after.get('ssid')}'"
-                                )
-
-                            if desired_pass_5 is not None and wifi5_after.get("password") != desired_pass_5:
-                                result.errors.append(
-                                    "Password 5GHz no coincide con el valor esperado"
-                                )
-                        except Exception as exc:
-                            result.steps.append({
-                                "step": "wifi_5_validate_skip",
-                                "data": {"reason": str(exc)},
-                            })
-
-                else:
-                    result.steps.append({
-                        "step": "wifi_skip",
-                        "data": {"reason": "wifi.enabled=True pero no se recibieron valores a cambiar"},
-                    })
-
-            else:
-                result.steps.append({
-                    "step": "wifi_disabled",
-                    "data": {"reason": "El plan no habilitó cambios WiFi"},
-                })
-
-            # TODO:
-            # - web_credentials
-            # - firmware
-            # Se dejan fuera por ahora para no mezclar responsabilidades.
+            self._apply_wifi_plan(
+                navigator=navigator,
+                plan=plan,
+                result=result,
+                progress=progress,
+            )
 
             result.ok = len(result.errors) == 0
             return result

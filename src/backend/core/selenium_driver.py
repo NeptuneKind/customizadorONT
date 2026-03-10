@@ -104,6 +104,7 @@ def build_chrome_driver(
     prefs = {
         "credentials_enable_service": False,
         "profile.password_manager_enabled": False,
+        "profile.password_manager_leak_detection": False,
         "profile.default_content_setting_values.notifications": 2,
         "safebrowsing.enabled": False,
     }
@@ -128,6 +129,7 @@ def build_chrome_driver(
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--log-level=3")
+    chrome_options.add_argument("--guest")
 
     chrome_options.add_argument("--ignore-certificate-errors")
     chrome_options.add_argument("--allow-insecure-localhost")

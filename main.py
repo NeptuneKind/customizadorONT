@@ -127,7 +127,7 @@ def main() -> int:
         # ZTE
         elif model in ("MOD002", "MOD009"):
             plan = CustomizationPlan(
-                wifi=WifiPlan(enabled=True, ssid_24="MiSSID_24", pass_24="MiPass_24"),
+                wifi=WifiPlan(enabled=True, ssid_24="MiSSID_24", pass_24="MiPass_24", ssid_5="XDDD", pass_5="XDDDDDDD"),
                 web_credentials=WebCredentialsPlan(enabled=False),
                 firmware=FirmwarePlan(enabled=False),
             )

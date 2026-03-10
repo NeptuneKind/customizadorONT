@@ -27,16 +27,19 @@ class ZTENavigator:
     # ==========================================================
     # Helpers base
     # ==========================================================
-    def open_root(self) -> None:
+    # Helper para abrir la raíz del router y resetear el contexto de navegación
+    def _open_root(self) -> None:
         self.driver.switch_to.default_content()
         self.driver.get(f"{self.base_url}/")
 
+    # Helper para resetear el contexto de navegación al documento principal (fuera de frames/iframes)
     def _switch_to_default(self) -> None:
         try:
             self.driver.switch_to.default_content()
         except Exception:
             pass
 
+    # Helper para buscar un elemento por sus selectores en el contexto actual (sin cambiar de frame) y devolverlo o None si no se encuentra
     def _find_in_current_context(self, by: str, value: str) -> Optional[WebElement]:
         try:
             el = self.driver.find_element(by, value)
@@ -44,6 +47,7 @@ class ZTENavigator:
         except NoSuchElementException:
             return None
 
+    # Helper para buscar un elemento por sus selectores en todo el documento (incluyendo frames/iframes) y devolverlo o lanzar error si no se encuentra en el tiempo indicado
     def find_element_anywhere(
         self,
         selectors: Sequence[Locator],
@@ -107,6 +111,7 @@ class ZTENavigator:
             raise RuntimeError(f"No se encontró {desc}. Último error: {last_error}")
         raise RuntimeError(f"No se encontró {desc} en {timeout}s")
 
+    # Helper para hacer click en un elemento identificado por sus selectores buscando en todo el documento (incluyendo frames/iframes) y esperar a que se haga efectivo el cambio
     def click_anywhere(
         self,
         selectors: Sequence[Locator],
@@ -129,13 +134,17 @@ class ZTENavigator:
 
         return el
 
+    # Helper para establecer el valor de un campo input de forma robusta intentando varios métodos (send_keys, value+eventos, etc.)
     def _set_input_value(self, el: WebElement, value: str) -> None:
+        desired = "" if value is None else str(value)
+
         try:
             self.driver.execute_script(
                 """
                 arguments[0].scrollIntoView({block:'center', inline:'center'});
+                arguments[0].removeAttribute('readonly');
+                arguments[0].removeAttribute('disabled');
                 arguments[0].focus();
-                arguments[0].value = '';
                 """,
                 el,
             )
@@ -148,18 +157,47 @@ class ZTENavigator:
             pass
 
         try:
-            el.send_keys(value)
-        except Exception:
             self.driver.execute_script(
                 """
-                arguments[0].value = arguments[1];
-                arguments[0].dispatchEvent(new Event('input', {bubbles:true}));
-                arguments[0].dispatchEvent(new Event('change', {bubbles:true}));
+                arguments[0].value = '';
+                arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+                arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
                 """,
                 el,
-                value,
+            )
+        except Exception:
+            pass
+
+        try:
+            el.send_keys(desired)
+        except Exception:
+            pass
+
+        current = self._get_input_value(el)
+        if current == desired:
+            return
+
+        self.driver.execute_script(
+            """
+            arguments[0].removeAttribute('readonly');
+            arguments[0].removeAttribute('disabled');
+            arguments[0].focus();
+            arguments[0].value = arguments[1];
+            arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+            arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+            arguments[0].dispatchEvent(new Event('blur', { bubbles: true }));
+            """,
+            el,
+            desired,
+        )
+
+        current = self._get_input_value(el)
+        if current != desired:
+            raise RuntimeError(
+                f"No fue posible establecer el valor del input. Esperado='{desired}' obtenido='{current}'"
             )
 
+    # Helper para obtener el valor de un campo input de forma robusta intentando varios métodos (value, get_attribute, etc.)
     def _get_input_value(self, el: WebElement) -> str:
         try:
             value = el.get_attribute("value")
@@ -168,10 +206,11 @@ class ZTENavigator:
             return ""
 
     # ==========================================================
-    # Login
+    # Helpers de login
     # ==========================================================
-    def login_default(self, username: str = "root", password: str = "admin") -> None:
-        self.open_root()
+    # Helper para hacer login con credenciales por defecto (root/admin)
+    def _zte_login(self, username: str = "root", password: str = "admin") -> None:
+        self._open_root()
 
         username_field = self.find_element_anywhere(
             selectors=[
@@ -228,6 +267,66 @@ class ZTENavigator:
 
         self.wait_session_ready()
 
+    # Helper para hacer login con credenciales de superusuario
+    def _zte_login_super(self, username: str = "admin", password: str = "Zgs12O5TSa2l3o9") -> None:
+        self._open_root()
+
+        username_field = self.find_element_anywhere(
+            selectors=[
+                (By.ID, "Frm_Username"),
+                (By.NAME, "Frm_Username"),
+                (By.ID, "username"),
+                (By.NAME, "username"),
+                (By.ID, "user"),
+                (By.NAME, "user"),
+                (By.ID, "user_name"),
+                (By.NAME, "user_name"),
+                (By.CSS_SELECTOR, "input[type='text']"),
+            ],
+            desc="campo username ZTE",
+            timeout_s=self.timeout_s,
+        )
+
+        password_field = self.find_element_anywhere(
+            selectors=[
+                (By.ID, "Frm_Password"),
+                (By.NAME, "Frm_Password"),
+                (By.ID, "password"),
+                (By.NAME, "password"),
+                (By.ID, "pass"),
+                (By.NAME, "pass"),
+                (By.ID, "loginpp"),
+                (By.NAME, "loginpp"),
+                (By.CSS_SELECTOR, "input[type='password']"),
+            ],
+            desc="campo password ZTE",
+            timeout_s=self.timeout_s,
+        )
+
+        self._set_input_value(username_field, username)
+        self._set_input_value(password_field, password)
+
+        login_button = self.find_element_anywhere(
+            selectors=[
+                (By.ID, "LoginId"),
+                (By.ID, "login_btn"),
+                (By.NAME, "login"),
+                (By.CSS_SELECTOR, "button[type='submit']"),
+                (By.CSS_SELECTOR, "input[type='submit']"),
+            ],
+            desc="botón login ZTE",
+            timeout_s=self.timeout_s,
+            must_be_displayed=False,
+        )
+
+        try:
+            self.driver.execute_script("arguments[0].click();", login_button)
+        except Exception:
+            login_button.click()
+
+        self.wait_session_ready()
+
+    # Helper para esperar a que la sesión esté lista comprobando la aparición de elementos del menú principal o la ausencia del botón de login
     def wait_session_ready(self, timeout_s: Optional[int] = None) -> None:
         timeout = timeout_s or self.timeout_s
         end_time = time.time() + timeout
@@ -258,22 +357,34 @@ class ZTENavigator:
         raise RuntimeError("No fue posible confirmar sesión activa en ZTE")
 
     # ==========================================================
-    # Navegación WLAN
+    # Helpers para navegación
     # ==========================================================
-    def open_wifi_ssid(self, ssid_index: int) -> WebElement:
+    # Helper para navegar a la configuración de los SSID y abrir la sección del SSID indicado para luego leer o modificar sus campos
+    def _open_wifi_ssid(self, ssid_index: int) -> WebElement:
         """
         Navega a WLAN SSID Configuration y abre el SSID indicado.
 
         Ejemplos:
-            open_wifi_ssid(0) -> SSID1 (2.4GHz)
-            open_wifi_ssid(3) -> SSID5 (5GHz)
+            _open_wifi_ssid(0) -> SSID1 (2.4GHz)
+            _open_wifi_ssid(3) -> SSID5 (5GHz)
         """
         # Llamar al helper de navegación a la página de SSID si no parece que ya estemos ahí
         if not self._is_on_wifi_ssid_page():
             self._ensure_wifi_ssid_page()
-        # Retornar el elemento de la sección del SSID indicado para luego interactuar con sus campos
-        return self._open_ssid_section(ssid_index)
-    
+        
+        # Llamar al helper de apertura del toggle de la banda WiFi para asegurar que los campos estén accesibles
+        self._ensure_ssid_section_open(ssid_index)
+
+        # Verificar que el campo password de la banda ya exista en DOM
+        password_el = self.find_element_anywhere(
+            selectors=self._password_field_selectors(ssid_index),
+            desc=f"campo password index={ssid_index}",
+            timeout_s=5,
+            must_be_displayed=False,
+        )
+
+        return password_el # Retornar el campo password como indicador de que ya estamos en la sección correcta y se hizo click para aplicar cambios
+
     # Helper para verificar si ya estamos en la página de configuración de SSID sin navegar desde la raíz
     def _is_on_wifi_ssid_page(self) -> bool:
         """
@@ -307,7 +418,7 @@ class ZTENavigator:
         Se puede llamar varias veces sin problema.
         """
 
-        self.open_root()
+        #self._open_root()
 
         # 1) Menú superior: Local Network
         self.click_anywhere(
@@ -371,6 +482,31 @@ class ZTENavigator:
             timeout_s=8,
         )
 
+    # Helper para asegurar que la sección de un SSID esté expandida para luego interactuar con sus campos. No vuelve a hacer click si ya parece que están accesibles
+    def _ensure_ssid_section_open(self, section_index: int) -> WebElement:
+        """
+        Asegura que la sección del SSID esté expandida.
+        Si ya está abierta, no vuelve a hacer click.
+        """
+        try:
+            return self.find_element_anywhere(
+                selectors=self._ssid_field_selectors(section_index),
+                desc=f"campo SSID index={section_index} ya visible",
+                timeout_s=1,
+                must_be_displayed=True,
+            )
+        except Exception:
+            pass
+
+        self._open_ssid_section(section_index)
+
+        return self.find_element_anywhere(
+            selectors=self._ssid_field_selectors(section_index),
+            desc=f"campo SSID index={section_index} después de expandir",
+            timeout_s=5,
+            must_be_displayed=True,
+        )
+
     # Helper para aplicar cambios en un SSID (2.4 o 5 GHz) haciendo click en su botón Apply específico
     def _apply_wifi_band(self, index: int) -> WebElement:
         """
@@ -380,22 +516,55 @@ class ZTENavigator:
             0 -> Btn_apply_WLANSSIDConf:0
             3 -> Btn_apply_WLANSSIDConf:3
         """
-        btn = self.click_anywhere(
+        btn = self.find_element_anywhere(
             selectors=[
                 (By.ID, f"Btn_apply_WLANSSIDConf:{index}"),
                 (By.XPATH, f"//*[@id='Btn_apply_WLANSSIDConf:{index}']"),
-                (
-                    By.XPATH,
-                    f"//input[@type='button' and @id='Btn_apply_WLANSSIDConf:{index}' and @value='Apply']",
-                ),
+                (By.XPATH, f"//input[@type='button' and @id='Btn_apply_WLANSSIDConf:{index}' and @value='Apply']"),
             ],
             desc=f"botón Apply WiFi index={index}",
             timeout_s=8,
+            must_be_displayed=False,
         )
 
+        try:
+            self.driver.execute_script(
+                "arguments[0].scrollIntoView({block:'center', inline:'center'});",
+                btn,
+            )
+        except Exception:
+            pass
+
+        try:
+            btn.click()
+        except Exception:
+            self.driver.execute_script("arguments[0].click();", btn)
+
         time.sleep(3)
+
+        try:
+
+            ok_btn = self.find_element_anywhere(
+                selectors=[
+                    (By.ID, "confirmOK"),
+                    (By.CSS_SELECTOR, "#confirmOK"),
+                    (By.XPATH, "//*[@id='confirmOK']"),
+                ],
+                desc="confirmación OK",
+                timeout_s=2,
+                must_be_displayed=False,
+            )
+            try:
+                self.driver.execute_script("arguments[0].click();", ok_btn)
+            except Exception:
+                ok_btn.click()
+            time.sleep(1.0)
+        except Exception:
+            pass
+
         return btn
 
+    # Helper principal para leer los campos SSID y devolver los valores
     def _ssid_field_selectors(self, index: int) -> Sequence[Locator]:
         return [
             (By.ID, f"ESSID:{index}"),
@@ -404,6 +573,7 @@ class ZTENavigator:
             (By.XPATH, f"//*[@id='ESSID:{index}']"),
         ]
 
+    # Helper para leer el campo de contraseña y devolver los valores
     def _password_field_selectors(self, index: int) -> Sequence[Locator]:
         return [
             (By.ID, f"KeyPassphrase:{index}"),
@@ -412,36 +582,55 @@ class ZTENavigator:
             (By.XPATH, f"//*[@id='KeyPassphrase:{index}']"),
         ]
 
-    def _security_field_to_text(self, index: int) -> None:
+    # Helper para preparar el campo password
+    def _get_password_input_ready(self, index: int) -> WebElement:
         try:
-            self.driver.execute_script(
-                """
-                var f = document.getElementById(arguments[0]);
-                if (f) { f.setAttribute('type', 'text'); }
-                """,
-                f"KeyPassphrase:{index}",
+            password_el = self.find_element_anywhere(
+                selectors=self._password_field_selectors(index),
+                desc=f"campo password index={index}",
+                timeout_s=3,
+                must_be_displayed=False,
             )
         except Exception:
-            pass
+            self._open_ssid_section(index)
+            password_el = self.find_element_anywhere(
+                selectors=self._password_field_selectors(index),
+                desc=f"campo password index={index}",
+                timeout_s=8,
+                must_be_displayed=True,
+            )
 
+        return password_el
+
+    # Helper para convertir el campo de contraseña a tipo texto y así poder leer su valor
+    # def _security_field_to_text(self, index: int) -> None:
+    #     try:
+    #         self.driver.execute_script(
+    #             """
+    #             var f = document.getElementById(arguments[0]);
+    #             if (f) { f.setAttribute('type', 'text'); }
+    #             """,
+    #             f"KeyPassphrase:{index}",
+    #         )
+    #     except Exception:
+    #         pass
+
+    # ===================================================================
+    # Métodos de utilidad para el orquestador
+    # ===================================================================
+
+    # Método para *SOLO LEER* los campos SSID y contraseña de una banda WiFi (2.4 o 5 GHz) y devolverlos en un dict
     def read_wifi_band(self, index: int) -> dict:
-        self._open_ssid_section(index)
+        self._open_wifi_ssid(index)
 
         ssid_el = self.find_element_anywhere(
             selectors=self._ssid_field_selectors(index),
             desc=f"campo SSID index={index}",
             timeout_s=8,
-            must_be_displayed=False,
+            must_be_displayed=True,
         )
 
-        self._security_field_to_text(index)
-
-        password_el = self.find_element_anywhere(
-            selectors=self._password_field_selectors(index),
-            desc=f"campo password index={index}",
-            timeout_s=8,
-            must_be_displayed=False,
-        )
+        password_el = self._get_password_input_ready(index)
 
         ssid_value = self._get_input_value(ssid_el)
         password_value = self._get_input_value(password_el)
@@ -455,13 +644,13 @@ class ZTENavigator:
             "password": password_value,
         }
 
+    # Método SOLO PARA MODIFICAR Y APLICAR cambios en los campos SSID y contraseña de una banda WiFi
     def update_wifi_band(
-    self,
-    index: int,
-    ssid: Optional[str] = None,
-    password: Optional[str] = None,
-) -> dict:
-        self._open_ssid_section(index)
+        self,
+        index: int,
+        ssid: Optional[str] = None,
+        password: Optional[str] = None,
+    ) -> dict:
         current = self.read_wifi_band(index=index)
 
         if ssid is not None:
@@ -469,21 +658,14 @@ class ZTENavigator:
                 selectors=self._ssid_field_selectors(index),
                 desc=f"campo SSID index={index}",
                 timeout_s=8,
-                must_be_displayed=False,
+                must_be_displayed=True,
             )
             self._set_input_value(ssid_el, ssid)
 
         if password is not None:
-            self._security_field_to_text(index)
-            password_el = self.find_element_anywhere(
-                selectors=self._password_field_selectors(index),
-                desc=f"campo password index={index}",
-                timeout_s=8,
-                must_be_displayed=False,
-            )
+            password_el = self._get_password_input_ready(index)
             self._set_input_value(password_el, password)
 
-        # Hacer efectivo el cambio en la sección correspondiente
         self._apply_wifi_band(index)
 
         updated = self.read_wifi_band(index=index)
@@ -492,6 +674,8 @@ class ZTENavigator:
             "before": current,
             "after": updated,
         }
+    
+    # Método para hacer click en el botón Save general de la sección WLAN para aplicar los cambios
     def save_wifi(self) -> None:
         save_button = self.find_element_anywhere(
             selectors=[
