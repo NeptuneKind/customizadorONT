@@ -218,6 +218,114 @@ class ZTEAdapter:
                 f"Password {band_label} no coincide con el valor esperado"
             )
 
+    # Método para aplicar el cambio de credenciales web después de WiFi
+    def _apply_web_credentials_plan(
+        self,
+        navigator: ZTENavigator,
+        plan: CustomizationPlan,
+        result: ZTECustomizationResult,
+        progress: ProgressCallback,
+    ) -> None:
+        # Buscar el bloque del plan de forma tolerante para no romper si todavía no existe formalmente
+        web_plan = (
+            getattr(plan, "web", None)
+            or getattr(plan, "web_credentials", None)
+            or getattr(plan, "login", None)
+        )
+
+        if web_plan is None:
+            result.steps.append({
+                "step": "web_credentials_skip",
+                "data": {"reason": "El plan no contiene bloque de credenciales web"},
+            })
+            return
+
+        enabled = getattr(web_plan, "enabled", False)
+        if not enabled:
+            result.steps.append({
+                "step": "web_credentials_disabled",
+                "data": {"reason": "El plan no habilitó cambio de credenciales web"},
+            })
+            return
+
+        # En ZTE, por requerimiento actual:
+        # - siempre entramos como usuario normal root/admin
+        # - username queda fijo en root, por lo que no se considera un valor a cambiar sino parte del proceso
+        username = "root"
+
+        old_password = self._normalize_optional_text(
+            getattr(web_plan, "old_password", None)
+            or getattr(web_plan, "current_password", None)
+            or getattr(web_plan, "old_pass", None)
+            or "admin"
+        ) or "admin"
+
+        new_password = self._normalize_optional_text(
+            getattr(web_plan, "new_password", None)
+            or getattr(web_plan, "password", None)
+            or getattr(web_plan, "pass", None)
+            or getattr(web_plan, "web_password", None)
+        )
+
+        if new_password is None:
+            result.steps.append({
+                "step": "web_credentials_skip",
+                "data": {"reason": "No se recibió nueva contraseña web a aplicar"},
+            })
+            return
+
+        self._emit(
+            progress,
+            "WEB_CREDENTIALS",
+            "Navegando a Account Management",
+            {"username": username},
+        )
+
+        result.steps.append({
+            "step": "web_credentials_before",
+            "data": {
+                "username": username,
+            },
+        })
+
+        self._emit(
+            progress,
+            "WEB_CREDENTIALS",
+            "Aplicando nueva contraseña web",
+            {
+                "username": username,
+                "old_password_used": True,
+                "new_password_set": True,
+            },
+        )
+
+        change_data = navigator.update_web_password(
+            old_password=old_password,
+            new_password=new_password,
+            confirm_password=new_password,
+        )
+        result.steps.append({
+            "step": "web_credentials_change",
+            "data": change_data,
+        })
+
+        self._emit(
+            progress,
+            "WEB_CREDENTIALS",
+            "Validando inicio de sesión con nueva contraseña web",
+            {"username": username},
+        )
+
+        navigator.verify_web_password_login(username=username, password=new_password)
+
+        result.steps.append({
+            "step": "web_credentials_after",
+            "data": {
+                "username": username,
+                "login_validated": True,
+            },
+        })
+
     # Método principal que aplica el plan completo usando el ZTENavigator y devuelve un resultado estructurado con toda la información relevante
     def apply(
         self,
@@ -243,13 +351,23 @@ class ZTEAdapter:
         navigator = self._build_navigator(ctx)
 
         try:
+            # 1) Login y espera de sesión
             self._do_login(
                 navigator=navigator,
                 ctx=ctx,
                 progress=progress,
             )
 
+            # 2) Customización WiFi
             self._apply_wifi_plan(
+                navigator=navigator,
+                plan=plan,
+                result=result,
+                progress=progress,
+            )
+
+            # 3) Customización de credenciales web
+            self._apply_web_credentials_plan(
                 navigator=navigator,
                 plan=plan,
                 result=result,

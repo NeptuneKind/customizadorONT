@@ -7,7 +7,6 @@ from src.backend.customizer.vendors.base import BrandAdapter
 from src.backend.customizer.vendors.huawei.huawei_adapter import HuaweiAdapter
 from src.backend.customizer.vendors.zte.zte_adapter import ZTEAdapter
 from src.backend.customizer.vendors.fiber.fiber_adapter import FiberhomeAdapter
-# TODO: add ZteAdapter, FiberhomeAdapter
 
 # ===================================================================
 # Métodos de registry

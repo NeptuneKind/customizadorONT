@@ -29,8 +29,8 @@ class WifiPlan:
 @dataclass
 class WebCredentialsPlan:
     enabled: bool = False
-    new_user: str = ""
-    new_pass: str = ""
+    old_password: str = "admin"
+    new_password: str = ""
 
 # Dataclass para representar el plan de firmware a configurar
 @dataclass

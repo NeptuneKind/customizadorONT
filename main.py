@@ -80,7 +80,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-headless", action="store_true", help="Forzar Selenium visible.")
     return p
 
-
 # ===================================================================
 # Main
 # ===================================================================
@@ -127,10 +126,21 @@ def main() -> int:
         # ZTE
         elif model in ("MOD002", "MOD009"):
             plan = CustomizationPlan(
-                wifi=WifiPlan(enabled=True, ssid_24="MiSSID_24", pass_24="MiPass_24", ssid_5="XDDD", pass_5="XDDDDDDD"),
-                web_credentials=WebCredentialsPlan(enabled=False),
+                wifi=WifiPlan(
+                    enabled=True,
+                    ssid_24="MiSSID_24",
+                    pass_24="MiPass_24",
+                    ssid_5="XDDD",
+                    pass_5="XDDDDDDD",
+                ),
+                web_credentials=WebCredentialsPlan(
+                    enabled=True,
+                    old_password="admin",
+                    new_password="NuevaPassWeb123",
+                ),
                 firmware=FirmwarePlan(enabled=False),
             )
+
             exit_code = run_customization(
                 settings=settings,
                 project_root=PROJECT_ROOT,

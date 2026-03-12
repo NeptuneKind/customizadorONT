@@ -357,7 +357,7 @@ class ZTENavigator:
         raise RuntimeError("No fue posible confirmar sesión activa en ZTE")
 
     # ==========================================================
-    # Helpers para navegación
+    # Helpers para configuración de SSID y password WiFi
     # ==========================================================
     # Helper para navegar a la configuración de los SSID y abrir la sección del SSID indicado para luego leer o modificar sus campos
     def _open_wifi_ssid(self, ssid_index: int) -> WebElement:
@@ -540,27 +540,7 @@ class ZTENavigator:
         except Exception:
             self.driver.execute_script("arguments[0].click();", btn)
 
-        time.sleep(3)
-
-        try:
-
-            ok_btn = self.find_element_anywhere(
-                selectors=[
-                    (By.ID, "confirmOK"),
-                    (By.CSS_SELECTOR, "#confirmOK"),
-                    (By.XPATH, "//*[@id='confirmOK']"),
-                ],
-                desc="confirmación OK",
-                timeout_s=2,
-                must_be_displayed=False,
-            )
-            try:
-                self.driver.execute_script("arguments[0].click();", ok_btn)
-            except Exception:
-                ok_btn.click()
-            time.sleep(1.0)
-        except Exception:
-            pass
+        time.sleep(3) # Dejar tiempo a que la GUI aplique los cambios antes de seguir interactuando
 
         return btn
 
@@ -589,7 +569,7 @@ class ZTENavigator:
                 selectors=self._password_field_selectors(index),
                 desc=f"campo password index={index}",
                 timeout_s=3,
-                must_be_displayed=False,
+                must_be_displayed=True,
             )
         except Exception:
             self._open_ssid_section(index)
@@ -602,18 +582,247 @@ class ZTENavigator:
 
         return password_el
 
-    # Helper para convertir el campo de contraseña a tipo texto y así poder leer su valor
-    # def _security_field_to_text(self, index: int) -> None:
-    #     try:
-    #         self.driver.execute_script(
-    #             """
-    #             var f = document.getElementById(arguments[0]);
-    #             if (f) { f.setAttribute('type', 'text'); }
-    #             """,
-    #             f"KeyPassphrase:{index}",
-    #         )
-    #     except Exception:
-    #         pass
+    # ==========================================================
+    # Helpers para credenciales web
+    # ==========================================================
+    # Método para cerrar sesión y validar login con nuevas credenciales
+    def logout(self) -> None:
+        try:
+            logout_btn = self.find_element_anywhere(
+                selectors=[
+                    (By.ID, "logOff"),
+                    (By.XPATH, "//*[@id='logOff']"),
+                    (By.ID, "LogOffLnk"),
+                    (By.XPATH, "//*[@id='LogOffLnk']"),
+                ],
+                desc="Logout",
+                timeout_s=5,
+                must_be_displayed=False,
+            )
+
+            try:
+                self.driver.execute_script(
+                    "arguments[0].scrollIntoView({block:'center', inline:'center'});",
+                    logout_btn,
+                )
+            except Exception:
+                pass
+
+            try:
+                logout_btn.click()
+            except Exception:
+                self.driver.execute_script("arguments[0].click();", logout_btn)
+
+            time.sleep(1.5)
+
+        except Exception:
+            # Si no aparece logout, intentamos volver a la raíz;
+            # no levantamos excepción para no romper la validación.
+            self._open_root()
+            time.sleep(1.5)
+
+    # Método para validar que la nueva contraseña web realmente quedó aplicada
+    def verify_web_password_login(self, username: str, password: str) -> None:
+        self.logout()
+        
+        # Esperar a que cargue la pantalla de login
+        time.sleep(1.5)
+
+        # Intentar login una sola vez con las nuevas credenciales
+        self._zte_login(username=username, password=password)
+        self.wait_session_ready(timeout_s=10)
+
+        # Si llegó aquí, el login fue correcto; cerrar sesión y terminar
+        self.logout()
+        time.sleep(1.5)
+
+    # Helper para verificar si ya estamos en la pantalla User Account Management
+    def _is_on_account_management_page(self) -> bool:
+        try:
+            self._switch_to_default()
+
+            markers = [
+                (By.ID, "AccountManag"),
+                (By.ID, "Password:0"),
+                (By.ID, "NewPassword:0"),
+                (By.ID, "NewConfirmPassword:0"),
+                (By.ID, "Btn_apply_AccountManag:0"),
+                (By.XPATH, "//*[@id='AccountManagBar:0']"),
+            ]
+
+            for by, value in markers:
+                try:
+                    el = self.driver.find_element(by, value)
+                    if el is not None:
+                        return True
+                except Exception:
+                    continue
+
+            return False
+        except Exception:
+            return False
+        
+    # Helper para navegar a Management & Diagnosis -> Account Management
+    def _ensure_account_management_page(self) -> None:
+        if self._is_on_account_management_page():
+            return
+
+        # 1) Menú superior: Management & Diagnosis
+        self.click_anywhere(
+            selectors=[
+                (By.ID, "mgrAndDiag"),
+                (By.XPATH, "//*[@id='mgrAndDiag']"),
+                (By.XPATH, "//a[@title='Management & Diagnosis']"),
+                (By.LINK_TEXT, "Management & Diagnosis"),
+            ],
+            desc="Management & Diagnosis",
+            timeout_s=10,
+        )
+
+        time.sleep(1.0)
+
+        # 2) Menú lateral: Account Management
+        self.click_anywhere(
+            selectors=[
+                (By.ID, "accountMgr"),
+                (By.XPATH, "//*[@id='accountMgr']"),
+                (By.XPATH, "//a[@title='Account Management']"),
+                (By.LINK_TEXT, "Account Management"),
+            ],
+            desc="Account Management",
+            timeout_s=10,
+        )
+
+        time.sleep(1.5)
+
+        # 3) Esperar primer campo del formulario
+        self.find_element_anywhere(
+            selectors=self._web_old_password_selectors(),
+            desc="campo Old Password",
+            timeout_s=8,
+            must_be_displayed=True,
+        )
+    
+    # Helper para obtener los selectores del campo de contraseña actual en la sección de Account Management
+    # def _web_username_selectors(self) -> Sequence[Locator]:
+    #     return [
+    #         (By.ID, "Username:0"),
+    #         (By.ID, "UserName:0"),
+    #         (By.NAME, "Username:0"),
+    #         (By.NAME, "UserName:0"),
+    #         (By.XPATH, "//*[@id='Username:0' or @id='UserName:0']"),
+    #     ]
+    
+    # Helper para obtener los selectores del campo de contraseña actual
+    def _web_old_password_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "Password:0"),
+            (By.NAME, "Password:0"),
+            (By.CSS_SELECTOR, "[id='Password:0']"),
+            (By.XPATH, "//*[@id='Password:0']"),
+        ]
+    
+    # Helper para obtener los selectores del campo de nueva contraseña
+    def _web_new_password_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "NewPassword:0"),
+            (By.NAME, "NewPassword:0"),
+            (By.CSS_SELECTOR, "[id='NewPassword:0']"),
+            (By.XPATH, "//*[@id='NewPassword:0']"),
+        ]
+
+    # Helper para obtener los selectores del campo de confirmación de nueva contraseña
+    def _web_confirm_password_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "NewConfirmPassword:0"),
+            (By.NAME, "NewConfirmPassword:0"),
+            (By.CSS_SELECTOR, "[id='NewConfirmPassword:0']"),
+            (By.XPATH, "//*[@id='NewConfirmPassword:0']"),
+        ]
+    
+    # Helper para obtener los selectores del botón Apply
+    def _web_apply_button_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "Btn_apply_AccountManag:0"),
+            (By.NAME, "Btn_apply_AccountManag:0"),
+            (By.CSS_SELECTOR, "[id='Btn_apply_AccountManag:0']"),
+            (By.XPATH, "//*[@id='Btn_apply_AccountManag:0']"),
+            (
+                By.XPATH,
+                "//input[@type='button' and @id='Btn_apply_AccountManag:0' and @value='Apply']",
+            ),
+        ]
+
+    # Método para actualizar la contraseña web del usuario root
+    def update_web_password(
+        self,
+        old_password: str,
+        new_password: str,
+        confirm_password: Optional[str] = None,
+    ) -> dict:
+        self._ensure_account_management_page()
+
+        confirm_password = new_password if confirm_password is None else confirm_password
+
+        old_password_el = self.find_element_anywhere(
+            selectors=self._web_old_password_selectors(),
+            desc="campo Old Password",
+            timeout_s=8,
+            must_be_displayed=True,
+        )
+
+        new_password_el = self.find_element_anywhere(
+            selectors=self._web_new_password_selectors(),
+            desc="campo New Password",
+            timeout_s=8,
+            must_be_displayed=True,
+        )
+
+        confirm_password_el = self.find_element_anywhere(
+            selectors=self._web_confirm_password_selectors(),
+            desc="campo Confirmed Password",
+            timeout_s=8,
+            must_be_displayed=True,
+        )
+
+        self._set_input_value(old_password_el, old_password)
+        self._set_input_value(new_password_el, new_password)
+        self._set_input_value(confirm_password_el, confirm_password)
+
+        apply_btn = self.find_element_anywhere(
+            selectors=self._web_apply_button_selectors(),
+            desc="botón Apply Account Management",
+            timeout_s=8,
+            must_be_displayed=False,
+        )
+
+        try:
+            self.driver.execute_script(
+                "arguments[0].scrollIntoView({block:'center', inline:'center'});",
+                apply_btn,
+            )
+        except Exception:
+            pass
+
+        try:
+            apply_btn.click()
+        except Exception:
+            self.driver.execute_script("arguments[0].click();", apply_btn)
+
+        # Igual que en WiFi: dejar tiempo a que la GUI aplique
+        time.sleep(3)
+
+        # return {
+        #     "username": "root",
+        #     "old_password_used": bool(old_password),
+        #     "new_password_set": bool(new_password),
+        # }
+        return {
+            "username": "root",
+            "old_password_length": len(old_password or ""),
+            "new_password_length": len(new_password or ""),
+            "confirm_password_length": len(confirm_password or ""),
+        }
 
     # ===================================================================
     # Métodos de utilidad para el orquestador
@@ -697,23 +906,4 @@ class ZTENavigator:
         except Exception:
             save_button.click()
 
-        time.sleep(1.5)
-
-        # Algunos firmwares muestran confirmación
-        try:
-            ok_btn = self.find_element_anywhere(
-                selectors=[
-                    (By.ID, "confirmOK"),
-                    (By.CSS_SELECTOR, "#confirmOK"),
-                    (By.XPATH, "//*[@id='confirmOK']"),
-                ],
-                desc="confirmación OK",
-                timeout_s=2,
-                must_be_displayed=False,
-            )
-            try:
-                self.driver.execute_script("arguments[0].click();", ok_btn)
-            except Exception:
-                ok_btn.click()
-        except Exception:
-            pass
+        time.sleep(3)
