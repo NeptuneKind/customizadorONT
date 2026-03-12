@@ -9,9 +9,7 @@ from selenium.common.exceptions import NoSuchElementException, StaleElementRefer
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-
 Locator = Tuple[str, str]
-
 
 class ZTENavigator:
     """
@@ -702,16 +700,6 @@ class ZTENavigator:
             timeout_s=8,
             must_be_displayed=True,
         )
-    
-    # Helper para obtener los selectores del campo de contraseña actual en la sección de Account Management
-    # def _web_username_selectors(self) -> Sequence[Locator]:
-    #     return [
-    #         (By.ID, "Username:0"),
-    #         (By.ID, "UserName:0"),
-    #         (By.NAME, "Username:0"),
-    #         (By.NAME, "UserName:0"),
-    #         (By.XPATH, "//*[@id='Username:0' or @id='UserName:0']"),
-    #     ]
     
     # Helper para obtener los selectores del campo de contraseña actual
     def _web_old_password_selectors(self) -> Sequence[Locator]:

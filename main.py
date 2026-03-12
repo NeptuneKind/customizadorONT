@@ -155,10 +155,21 @@ def main() -> int:
         # Huawei
         elif model in ("MOD003", "MOD004", "MOD005", "MOD007"):
             plan = CustomizationPlan(
-                wifi=WifiPlan(enabled=True, ssid_24="MiPepote_24", pass_24="MiPepito_24", ssid_5="XDDD", pass_5="XD"),
-                web_credentials=WebCredentialsPlan(enabled=False),
+                wifi=WifiPlan(
+                    enabled=True,
+                    ssid_24="MiSSID_24",
+                    pass_24="MiPass_24",
+                    ssid_5="XDDD",
+                    pass_5="XDDDDDDD",
+                ),
+                web_credentials=WebCredentialsPlan(
+                    enabled=True,
+                    old_password="admin",
+                    new_password="NuevaPassWeb123",
+                ),
                 firmware=FirmwarePlan(enabled=False),
             )
+            
             exit_code = run_customization(
                 settings=settings,
                 project_root=PROJECT_ROOT,

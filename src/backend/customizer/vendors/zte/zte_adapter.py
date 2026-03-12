@@ -8,7 +8,7 @@ from src.backend.customizer.models import CustomizationPlan
 from src.backend.customizer.progress import ProgressCallback, ProgressEvent
 
 from .zte_navigator import ZTENavigator
-
+from src.backend.customizer.product_map import resolve_product_name
 
 @dataclass
 class ZTECustomizationResult:
@@ -16,6 +16,7 @@ class ZTECustomizationResult:
     vendor: str
     ip: str
     model_code: str
+    product: str
     steps: List[Dict[str, Any]] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
     artifacts: Dict[str, Any] = field(default_factory=dict)
@@ -150,10 +151,6 @@ class ZTEAdapter:
             {"ssid_index": index},
         )
         before_data = navigator.read_wifi_band(index=index)
-        result.steps.append({
-            "step": f"wifi_{band_key}_before",
-            "data": before_data,
-        })
 
         # 3. Cambio
         self._emit(
@@ -171,10 +168,6 @@ class ZTEAdapter:
             ssid=desired_ssid,
             password=desired_password,
         )
-        result.steps.append({
-            "step": f"wifi_{band_key}_change",
-            "data": change_data,
-        })
 
         #navigator._open_wifi_ssid(index)
 
@@ -186,10 +179,6 @@ class ZTEAdapter:
             {"ssid_index": index},
         )
         after_data = navigator.read_wifi_band(index=index)
-        result.steps.append({
-            "step": f"wifi_{band_key}_after",
-            "data": after_data,
-        })
 
         self._validate_wifi_band(
             band_label=band_label,
@@ -198,6 +187,21 @@ class ZTEAdapter:
             desired_password=desired_password,
             result=result,
         )
+
+        result.steps.append({
+            "step": f"wifi_{band_key}",
+            "data": {
+                "band": band_label,
+                "before": {
+                    "ssid": change_data.get("before", {}).get("ssid"),
+                    "password": change_data.get("before", {}).get("password"),
+                },
+                "after": {
+                    "ssid": change_data.get("after", {}).get("ssid"),
+                    "password": change_data.get("after", {}).get("password"),
+                },
+            },
+        })
     
     # Método para lectura comparando con los valores finales contra los deseados y agregando errores al resultado si no coinciden
     def _validate_wifi_band(
@@ -281,13 +285,6 @@ class ZTEAdapter:
             {"username": username},
         )
 
-        result.steps.append({
-            "step": "web_credentials_before",
-            "data": {
-                "username": username,
-            },
-        })
-
         self._emit(
             progress,
             "WEB_CREDENTIALS",
@@ -304,10 +301,6 @@ class ZTEAdapter:
             new_password=new_password,
             confirm_password=new_password,
         )
-        result.steps.append({
-            "step": "web_credentials_change",
-            "data": change_data,
-        })
 
         self._emit(
             progress,
@@ -319,10 +312,12 @@ class ZTEAdapter:
         navigator.verify_web_password_login(username=username, password=new_password)
 
         result.steps.append({
-            "step": "web_credentials_after",
+            "step": "web_credentials",
             "data": {
                 "username": username,
-                "login_validated": True,
+                "old_password": old_password,
+                "new_password": new_password,
+                "verified_login": True,
             },
         })
 
@@ -338,6 +333,7 @@ class ZTEAdapter:
             vendor=ctx.vendor,
             ip=ctx.ip,
             model_code=ctx.model_code,
+            product=resolve_product_name(ctx.model_code),
         )
 
         if ctx.model_code not in self.supported_models:
