@@ -2,6 +2,7 @@
 # Imports
 # ===================================================================
 import subprocess
+import sys
 import time
 import re
 import html as html_lib
@@ -75,12 +76,16 @@ def wait_for_device_ip(
         for ip in ips:
             attempt += 1
             if ping_once_windows(ip, timeout_ms=per_ping_timeout_ms):
-                log_ping.info("Conectado ip=%s attempt=%d", ip, attempt)
+                sys.stdout.write(f"\r[PING] Conectado IP={ip} intento={attempt}        \n")
+                sys.stdout.flush()
+                log_ping.info("Conectado IP=%s intento=%d", ip, attempt)
                 return ip
             else:
-                log_ping.debug("Sin respuesta ip=%s attempt=%d", ip, attempt)
+                sys.stdout.write(f"\r[PING] Buscando dispositivo... intento={attempt}")
+                sys.stdout.flush()
 
             if overall_timeout_s is not None and (time.time() - start) >= overall_timeout_s:
+                sys.stdout.write("\n")
                 raise TimeoutError("Esperando IP del dispositivo")
 
             time.sleep(sleep_s)
@@ -102,7 +107,7 @@ def detect_vendor_and_model(ip: str, timeout_s: float = 3.0) -> DetectedDevice:
         return huawei
     
     # 3) Si no es Huawei => FiberHome (confirmar modelo tras login)
-    log_detect.info("No se detecttó Huawei => es un FiberHome ip=%s", ip)
+    log_detect.info("No se detectó Huawei => es un FiberHome con IP=%s", ip)
     return DetectedDevice(
         ip=ip,
         vendor="FIBERHOME",

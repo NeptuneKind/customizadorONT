@@ -22,9 +22,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "new_pass": ""
     },
     "login_candidates": {
-        "huawei": [{"user": "root", "pass": "admin"}, {"user": "", "pass": ""}],
-        "zte": [{"user": "root", "pass": "admin"}, {"user": "", "pass": ""}],
-        "fiber": [{"user": "root", "pass": "admin"}, {"user": "", "pass": ""}],
+        "huawei": [{"user": "root", "pass": "admin"}, {"user": "telecomadmin", "pass": "F0xB734Fr3@j%YEP"}],
+        "zte": [{"user": "root", "pass": "admin"}, {"user": "admin", "pass": "Zgs12O5TSa2l3o9"}],
+        "fiber": [{"user": "root", "pass": "admin"}, {"user": "admin", "pass": "z#Wh46QN@52Rm%j5"}],
     },
     "selenium": {
         "chromedriver_path": "",

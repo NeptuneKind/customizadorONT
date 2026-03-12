@@ -21,7 +21,8 @@ def setup_logging(*, debug: bool, logs_dir: Path) -> None:
 
     logging.basicConfig(
         level=level,
-        format="%(asctime)s | %(levelname)s | [%(name)s] | %(message)s",
+        # format="%(asctime)s | %(levelname)s | [%(name)s] | %(message)s",
+        format="[%(levelname)s][%(name)s] %(message)s",
         handlers=handlers,
     )
 
