@@ -719,7 +719,7 @@ class HuaweiNavigator:
                 must_be_displayed=False,
             )
             return
-        except Exception:
+        except Exception: # Se ejecutó WifiPlan o estamos en la página principal
             pass
 
         # Asegurar que estamos en Advanced

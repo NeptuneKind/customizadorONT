@@ -661,7 +661,7 @@ class ZTENavigator:
             return False
         
     # Helper para navegar a Management & Diagnosis -> Account Management
-    def _ensure_account_management_page(self) -> None:
+    def _go_to_account_management(self) -> None:
         if self._is_on_account_management_page():
             return
 
@@ -748,7 +748,7 @@ class ZTENavigator:
         new_password: str,
         confirm_password: Optional[str] = None,
     ) -> dict:
-        self._ensure_account_management_page()
+        self._go_to_account_management()
 
         confirm_password = new_password if confirm_password is None else confirm_password
 

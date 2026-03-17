@@ -16,7 +16,7 @@ from config.settings import load_or_init_settings, resolve_headless
 from config.logging import setup_logging, get_logger
 
 #from src.backend.customizer.context import CustomizationContext
-from src.backend.customizer.models import CustomizationPlan, WifiPlan, WebCredentialsPlan, FirmwarePlan
+from src.backend.customizer.models import CustomizationPlan, WifiPlan, WebCredentialsPlan, IPPlan
 from src.backend.customizer.orquestador import run_customization
 from src.backend.core.monitoring import wait_for_device_ip, detect_vendor_and_model
 #from src.backend.core.report import write_json_report
@@ -108,9 +108,21 @@ def main() -> int:
         # FiberHome
         if det.model_code in ["MOD001", "MOD008"]:
             plan = CustomizationPlan(
-                wifi=WifiPlan(enabled=True, ssid_24="MiSSID_24", pass_24="MiPass_24"),
-                web_credentials=WebCredentialsPlan(enabled=False),
-                firmware=FirmwarePlan(enabled=False),
+                # wifi=WifiPlan(
+                #     enabled=True,
+                #     ssid_24="MiSSID_24",
+                #     pass_24="MiPass_24",
+                #     ssid_5="XDDD",
+                #     pass_5="XDDDDDDD",
+                # ),
+                # web_credentials=WebCredentialsPlan(
+                #     enabled=True,
+                #     old_password="admin",
+                #     new_password="NuevaPassWeb123",
+                # ),
+                wifi=WifiPlan(enabled=False), # Deshabilitado temporalmente para FiberHome por pruebas
+                web_credentials=WebCredentialsPlan(enabled=False), # Deshabilitado temporalmente para FiberHome por pruebas
+                ip=IPPlan(enabled=True, new_ip="192.168.101.1")
             )
             exit_code = run_customization(
                 settings=settings,
@@ -138,7 +150,6 @@ def main() -> int:
                     old_password="admin",
                     new_password="NuevaPassWeb123",
                 ),
-                firmware=FirmwarePlan(enabled=False),
             )
 
             exit_code = run_customization(
@@ -167,7 +178,6 @@ def main() -> int:
                     old_password="admin",
                     new_password="NuevaPassWeb123",
                 ),
-                firmware=FirmwarePlan(enabled=False),
             )
             
             exit_code = run_customization(

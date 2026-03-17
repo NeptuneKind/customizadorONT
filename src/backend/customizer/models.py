@@ -32,20 +32,19 @@ class WebCredentialsPlan:
     old_password: str = "admin"
     new_password: str = ""
 
-# Dataclass para representar el plan de firmware a configurar
+# Dataclass para representar el plan de cambio de IP (gateway)
 @dataclass
-class FirmwarePlan:
+class IPPlan:
     enabled: bool = False
-    mode: str = "selected"  # selected|all
-    files: List[str] = field(default_factory=list)
+    new_ip: str = ""
 
 # Dataclass para almacenar el plan completo de personalización
 @dataclass
 class CustomizationPlan:
     wifi: WifiPlan = field(default_factory=WifiPlan)
     web_credentials: WebCredentialsPlan = field(default_factory=WebCredentialsPlan)
-    firmware: FirmwarePlan = field(default_factory=FirmwarePlan)
-
+    ip: IPPlan = field(default_factory=IPPlan)
+    
 # Dataclass para almacenar el resultado de cada paso del proceso de personalización
 @dataclass
 class StepResult:

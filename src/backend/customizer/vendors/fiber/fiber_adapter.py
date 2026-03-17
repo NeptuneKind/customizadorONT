@@ -58,13 +58,12 @@ class FiberhomeAdapter:
         ctx: CustomizationContext,
         progress: ProgressCallback,
     ) -> None:
-        candidates = (ctx.settings.get("login_candidates") or {}).get("fiberhome") or []
+        candidates = (ctx.settings.get("login_candidates") or {}).get("fiber") or []
 
         if not candidates:
             raise RuntimeError("No hay candidatos de login configurados para FiberHome")
 
         self._emit(progress, "LOGIN", "Abriendo GUI FiberHome", {"ip": ctx.ip})
-        navigator.open_home()
 
         last_error: Optional[Exception] = None
 
@@ -148,7 +147,7 @@ class FiberhomeAdapter:
         progress: ProgressCallback,
     ) -> None:
         band_label = "2.4GHz" if band == WifiBand.B24 else "5GHz"
-        band_key = "24" if band == WifiBand.B24 else "5"
+        step_name = "wifi_24ghz" if band == WifiBand.B24 else "wifi_5ghz"
 
         self._emit(
             progress,
@@ -213,9 +212,8 @@ class FiberhomeAdapter:
         )
 
         result.steps.append({
-            "step": f"wifi_{band_key}",
+            "step": step_name,
             "data": {
-                "band": band_label,
                 "before": {
                     "ssid": before_data.get("ssid"),
                     "password": before_data.get("password"),
@@ -223,10 +221,6 @@ class FiberhomeAdapter:
                 "after": {
                     "ssid": after_data.get("ssid"),
                     "password": after_data.get("password"),
-                },
-                "apply_result": {
-                    "before": change_data.get("before", {}),
-                    "after": change_data.get("after", {}),
                 },
             },
         })
@@ -250,12 +244,12 @@ class FiberhomeAdapter:
             )
 
     def _apply_web_credentials_plan(
-        self,
-        navigator: FiberhomeNavigator,
-        plan: CustomizationPlan,
-        result: FiberhomeCustomizationResult,
-        progress: ProgressCallback,
-    ) -> None:
+    self,
+    navigator: FiberhomeNavigator,
+    plan: CustomizationPlan,
+    result: FiberhomeCustomizationResult,
+    progress: ProgressCallback,
+) -> None:
         web_plan = (
             getattr(plan, "web", None)
             or getattr(plan, "web_credentials", None)
@@ -277,12 +271,7 @@ class FiberhomeAdapter:
             })
             return
 
-        old_username = self._normalize_optional_text(
-            getattr(web_plan, "old_username", None)
-            or getattr(web_plan, "current_username", None)
-            or getattr(web_plan, "old_user", None)
-            or "root"
-        ) or "root"
+        old_username = "root"
 
         old_password = self._normalize_optional_text(
             getattr(web_plan, "old_password", None)
@@ -290,13 +279,6 @@ class FiberhomeAdapter:
             or getattr(web_plan, "old_pass", None)
             or "admin"
         ) or "admin"
-
-        new_username = self._normalize_optional_text(
-            getattr(web_plan, "new_username", None)
-            or getattr(web_plan, "username", None)
-            or getattr(web_plan, "user", None)
-            or old_username
-        ) or old_username
 
         new_password = self._normalize_optional_text(
             getattr(web_plan, "new_password", None)
@@ -319,47 +301,166 @@ class FiberhomeAdapter:
             {"username": old_username},
         )
 
-        before_data = navigator.read_web_credentials()
+        navigator.read_web_credentials()
 
         self._emit(
             progress,
             "WEB_CREDENTIALS",
             "Aplicando nuevas credenciales web",
             {
-                "old_username": old_username,
-                "new_username": new_username,
+                "username": "root",
                 "old_password_used": True,
                 "new_password_set": True,
             },
         )
 
-        change_data = navigator.update_web_credentials(
-            old_username=old_username,
-            old_password=old_password,
-            new_username=new_username,
-            new_password=new_password,
+        navigator.update_web_credentials(
+            username="root",
+            password=new_password,
         )
 
         self._emit(
             progress,
             "WEB_CREDENTIALS",
             "Validando inicio de sesión con nuevas credenciales web",
-            {"username": new_username},
+            {"username": "root"},
         )
 
-        navigator.verify_web_credentials_login(
-            username=new_username,
+        verified = navigator.verify_web_credentials_login(
+            username="root",
             password=new_password,
         )
+
+        if not verified:
+            raise RuntimeError("No fue posible validar el login FiberHome con las nuevas credenciales web")
 
         result.steps.append({
             "step": "web_credentials",
             "data": {
-                "before": before_data,
-                "after": change_data.get("after", {}),
-                "verified_login": True,
+                "before": {
+                    "username": "root",
+                    "password": old_password,
+                },
+                "after": {
+                    "username": "root",
+                    "password": new_password,
+                },
+                "verified_login": verified,
             },
         })
+
+    def _apply_ip_plan(
+        self,
+        navigator: FiberhomeNavigator,
+        plan: CustomizationPlan,
+        result: FiberhomeCustomizationResult,
+        progress: ProgressCallback,
+        ctx: CustomizationContext,
+    ) -> None:
+        ip_plan = getattr(plan, "ip", None)
+
+        if ip_plan is None:
+            result.steps.append({
+                "step": "ip_skip",
+                "data": {"reason": "El plan no contiene bloque de IP"},
+            })
+            return
+
+        enabled = getattr(ip_plan, "enabled", False)
+        if not enabled:
+            result.steps.append({
+                "step": "ip_disabled",
+                "data": {"reason": "El plan no habilitó cambio de IP"},
+            })
+            return
+
+        new_ip = self._normalize_optional_text(
+            getattr(ip_plan, "new_ip", None)
+        )
+
+        if new_ip is None:
+            result.steps.append({
+                "step": "ip_skip",
+                "data": {"reason": "No se recibió nueva IP a aplicar"},
+            })
+            return
+
+        old_ip = ctx.ip
+
+        self._emit(
+            progress,
+            "IP",
+            "Leyendo configuración actual de IP",
+            {"current_ip": old_ip},
+        )
+
+        try:
+            before_data = navigator.read_ip_configuration()
+        except Exception as e:
+            raise RuntimeError(f"Error leyendo IP actual FiberHome: {e}")
+
+        self._emit(
+            progress,
+            "IP",
+            "Aplicando nueva IP",
+            {
+                "old_ip": old_ip,
+                "new_ip": new_ip,
+            },
+        )
+
+        try:
+            change_data = navigator.update_ip_configuration(new_ip=new_ip)
+        except Exception as e:
+            raise RuntimeError(f"Error aplicando nueva IP FiberHome: {e}")
+
+        self._emit(
+            progress,
+            "IP",
+            "Validando cambio de IP",
+            {"new_ip": new_ip},
+        )
+
+        try:
+            after_data = navigator.read_ip_configuration()
+        except Exception as e:
+            raise RuntimeError(f"Error leyendo IP FiberHome después de aplicar: {e}")
+
+        self._validate_ip_change(
+            old_ip=old_ip,
+            new_ip=new_ip,
+            after_data=after_data,
+            result=result,
+        )
+
+        result.steps.append({
+            "step": "ip_configuration",
+            "data": {
+                "before": {
+                    "ip": before_data.get("ip", old_ip),
+                },
+                "after": {
+                    "ip": after_data.get("ip", new_ip),
+                },
+                "requested": {
+                    "ip": new_ip,
+                },
+            },
+        })
+
+    def _validate_ip_change(
+        self,
+        old_ip: str,
+        new_ip: str,
+        after_data: Dict[str, Any],
+        result: FiberhomeCustomizationResult,
+    ) -> None:
+        obtained_ip = str(after_data.get("ip", "") or "").strip()
+
+        if obtained_ip != new_ip:
+            result.errors.append(
+                f"IP FiberHome no coincide. Esperado='{new_ip}' obtenido='{obtained_ip}'"
+            )
 
     def apply(
         self,
@@ -406,10 +507,32 @@ class FiberhomeAdapter:
                 progress=progress,
             )
 
+            self._apply_ip_plan(
+                navigator=navigator,
+                plan=plan,
+                result=result,
+                progress=progress,
+                ctx=ctx,
+            )
+
             result.ok = len(result.errors) == 0
             return result
 
         except Exception as exc:
             result.errors.append(str(exc))
             result.ok = False
-            return result
+    
+        finally:
+            try:
+                self._emit(progress, "LOGOUT", "Cerrando sesión FiberHome", None)
+                navigator.logout()
+            except Exception as logout_exc:
+                result.steps.append({
+                    "step": "logout_warning",
+                    "data": {
+                        "warning": f"No fue posible cerrar sesión FiberHome: {logout_exc}"
+                    },
+                })
+        
+        return result
+    
