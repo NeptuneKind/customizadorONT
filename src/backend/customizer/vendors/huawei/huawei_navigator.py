@@ -4,10 +4,11 @@ import time
 from typing import Optional, Sequence, Tuple
 
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webdriver import WebDriver, WebElement
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
+from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException, TimeoutException, WebDriverException
 
 from src.backend.customizer.models import WifiBand
 
@@ -160,25 +161,66 @@ class HuaweiNavigator:
     def _set_input_value(self, el: WebElement, value: str) -> None:
         desired = "" if value is None else str(value)
 
+        def _current_value() -> str:
+            return self._get_input_value(el)
+
+        def _prepare_element() -> None:
+            try:
+                self.driver.execute_script(
+                    """
+                    arguments[0].scrollIntoView({block:'center', inline:'center'});
+                    arguments[0].removeAttribute('readonly');
+                    arguments[0].removeAttribute('disabled');
+                    arguments[0].focus();
+                    """,
+                    el,
+                )
+            except Exception:
+                pass
+
+        def _dispatch_common_events() -> None:
+            try:
+                self.driver.execute_script(
+                    """
+                    arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+                    arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+                    arguments[0].dispatchEvent(new Event('blur', { bubbles: true }));
+                    """,
+                    el,
+                )
+            except Exception:
+                pass
+
+        # Intento 1: clear() + send_keys()
         try:
-            self.driver.execute_script(
-                """
-                arguments[0].scrollIntoView({block:'center', inline:'center'});
-                arguments[0].removeAttribute('readonly');
-                arguments[0].removeAttribute('disabled');
-                arguments[0].focus();
-                """,
-                el,
-            )
+            _prepare_element()
+            try:
+                el.clear()
+            except Exception:
+                pass
+            el.send_keys(desired)
+            _dispatch_common_events()
+            if _current_value() == desired:
+                return
         except Exception:
             pass
 
+        # Intento 2: Ctrl+A + Backspace + send_keys() + TAB
         try:
-            el.clear()
+            _prepare_element()
+            el.send_keys(Keys.CONTROL, "a")
+            el.send_keys(Keys.BACKSPACE)
+            el.send_keys(desired)
+            el.send_keys(Keys.TAB)
+            _dispatch_common_events()
+            if _current_value() == desired:
+                return
         except Exception:
             pass
 
+        # Intento 3: limpiar por JS + escribir carácter por carácter con send_keys()
         try:
+            _prepare_element()
             self.driver.execute_script(
                 """
                 arguments[0].value = '';
@@ -187,123 +229,60 @@ class HuaweiNavigator:
                 """,
                 el,
             )
+            for ch in desired:
+                el.send_keys(ch)
+                time.sleep(0.03)
+            el.send_keys(Keys.TAB)
+            _dispatch_common_events()
+            if _current_value() == desired:
+                return
         except Exception:
             pass
 
+        # Intento 4: seteo directo por JS + eventos
         try:
-            el.send_keys(desired)
-        except Exception:
-            pass
-
-        current = self._get_input_value(el)
-        if current == desired:
-            return
-
-        self.driver.execute_script(
-            """
-            arguments[0].removeAttribute('readonly');
-            arguments[0].removeAttribute('disabled');
-            arguments[0].focus();
-            arguments[0].value = arguments[1];
-            arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-            arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
-            arguments[0].dispatchEvent(new Event('blur', { bubbles: true }));
-            """,
-            el,
-            desired,
-        )
-
-        current = self._get_input_value(el)
-        if current != desired:
-            raise RuntimeError(
-                f"No fue posible establecer el valor del input. Esperado='{desired}' obtenido='{current}'"
-            )
-
-    # Helper para hacer click en un elemento identificado por sus selectores buscando en todo el documento (incluyendo frames/iframes) y esperar a que se haga efectivo el cambio
-    def click_anywhere(
-        self,
-        selectors: Sequence[Locator],
-        desc: str,
-        timeout_s: Optional[int] = None,
-    ) -> WebElement:
-        el = self.find_element_anywhere(selectors=selectors, desc=desc, timeout_s=timeout_s)
-        try:
-            self.driver.execute_script(
-                "arguments[0].scrollIntoView({block:'center', inline:'center'});",
-                el,
-            )
-        except Exception:
-            pass
-
-        try:
-            el.click()
-        except Exception:
-            self.driver.execute_script("arguments[0].click();", el)
-
-        return el
-
-    # Helper para establecer el valor de un campo input de forma robusta intentando varios métodos (send_keys, value+eventos, etc.)
-    def _set_input_value(self, el: WebElement, value: str) -> None:
-        desired = "" if value is None else str(value)
-
-        try:
+            _prepare_element()
             self.driver.execute_script(
                 """
-                arguments[0].scrollIntoView({block:'center', inline:'center'});
                 arguments[0].removeAttribute('readonly');
                 arguments[0].removeAttribute('disabled');
                 arguments[0].focus();
-                """,
-                el,
-            )
-        except Exception:
-            pass
-
-        try:
-            el.clear()
-        except Exception:
-            pass
-
-        try:
-            self.driver.execute_script(
-                """
-                arguments[0].value = '';
+                arguments[0].value = arguments[1];
                 arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
                 arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+                arguments[0].dispatchEvent(new Event('blur', { bubbles: true }));
                 """,
                 el,
+                desired,
             )
+            if _current_value() == desired:
+                return
         except Exception:
             pass
 
+        # Intento 5: setAttribute + value por JS + eventos
         try:
-            el.send_keys(desired)
+            _prepare_element()
+            self.driver.execute_script(
+                """
+                arguments[0].setAttribute('value', arguments[1]);
+                arguments[0].value = arguments[1];
+                arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+                arguments[0].dispatchEvent(new Event('keyup', { bubbles: true }));
+                arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+                arguments[0].dispatchEvent(new Event('blur', { bubbles: true }));
+                """,
+                el,
+                desired,
+            )
+            if _current_value() == desired:
+                return
         except Exception:
             pass
 
-        current = self._get_input_value(el)
-        if current == desired:
-            return
-
-        self.driver.execute_script(
-            """
-            arguments[0].removeAttribute('readonly');
-            arguments[0].removeAttribute('disabled');
-            arguments[0].focus();
-            arguments[0].value = arguments[1];
-            arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
-            arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
-            arguments[0].dispatchEvent(new Event('blur', { bubbles: true }));
-            """,
-            el,
-            desired,
+        raise RuntimeError(
+            f"No fue posible establecer el valor del input. Esperado='{desired}' obtenido='{_current_value()}'"
         )
-
-        current = self._get_input_value(el)
-        if current != desired:
-            raise RuntimeError(
-                f"No fue posible establecer el valor del input. Esperado='{desired}' obtenido='{current}'"
-            )
 
     # Helper para obtener el valor de un campo input de forma robusta intentando varios métodos (value, get_attribute, etc.)
     def _get_input_value(self, el: WebElement) -> str:
@@ -463,7 +442,7 @@ class HuaweiNavigator:
         except Exception:
             login_button.click()
 
-        time.sleep(1.5)
+        time.sleep(0.5)
 
         # En verificación solo confirmamos que ya entró y que el logout existe.
         self.find_element_anywhere(
@@ -475,6 +454,229 @@ class HuaweiNavigator:
             must_be_displayed=False,
         )
     
+    # Helper para abrir una nueva pestaña en blanco
+    def open_blank_verification_tab(
+        self,
+        timeout_s: float = 5.0,
+        max_attempts: int = 2,
+    ) -> str:
+        previous_handle = self.driver.current_window_handle
+        last_error: Optional[Exception] = None
+
+        for _ in range(max_attempts):
+            existing_handles = list(self.driver.window_handles)
+
+            # Intento 1: API nativa de Selenium / DevTools
+            try:
+                self.driver.switch_to.new_window("tab")
+            except Exception as exc:
+                last_error = exc
+            else:
+                try:
+                    WebDriverWait(self.driver, timeout_s).until(
+                        lambda d: len(d.window_handles) > len(existing_handles)
+                    )
+                except Exception as exc:
+                    last_error = exc
+
+                try:
+                    new_handles = [h for h in self.driver.window_handles if h not in existing_handles]
+                    if not new_handles:
+                        raise RuntimeError("No se detectó el handle de la nueva pestaña")
+
+                    self.driver.switch_to.window(new_handles[-1])
+                    self._switch_to_default()
+
+                    WebDriverWait(self.driver, timeout_s).until(
+                        lambda d: d.execute_script("return document.readyState") in ("interactive", "complete")
+                    )
+
+                    return previous_handle
+                except Exception as exc:
+                    last_error = exc
+
+            # Regresar a la pestaña original antes del fallback
+            try:
+                self.driver.switch_to.window(previous_handle)
+                self._switch_to_default()
+            except Exception:
+                pass
+
+            # Intento 2: fallback con window.open()
+            try:
+                self.driver.execute_script("window.open('about:blank', '_blank');")
+
+                WebDriverWait(self.driver, timeout_s).until(
+                    lambda d: len(d.window_handles) > len(existing_handles)
+                )
+
+                new_handles = [h for h in self.driver.window_handles if h not in existing_handles]
+                if not new_handles:
+                    raise RuntimeError("No se detectó el handle de la nueva pestaña")
+
+                self.driver.switch_to.window(new_handles[-1])
+                self._switch_to_default()
+
+                WebDriverWait(self.driver, timeout_s).until(
+                    lambda d: d.execute_script("return document.readyState") in ("interactive", "complete")
+                )
+
+                return previous_handle
+
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.25)
+
+            try:
+                self.driver.switch_to.window(previous_handle)
+                self._switch_to_default()
+            except Exception:
+                pass
+
+        raise RuntimeError(f"No fue posible abrir una nueva pestaña de verificación: {last_error}")
+
+    # Helper para cambiar entre pestañas del driver
+    def switch_to_window(self, handle: str) -> None:
+        self.driver.switch_to.window(handle)
+        self._switch_to_default()
+
+    # Helper para cerrar pestaña actual y volver a la pestaña anterior
+    def close_current_tab_and_switch_back(self, previous_handle: str) -> None:
+        self.driver.close()
+        self.driver.switch_to.window(previous_handle)
+        self._switch_to_default()
+
+    def wait_until_login_accessible_on_new_ip(
+        self,
+        new_ip: str,
+        timeout_s: int = 20,
+        retry_every_s: float = 0.75,
+        per_attempt_wait_s: float = 1.5,
+    ) -> None:
+        target_url = f"http://{str(new_ip).strip()}"
+        end_time = time.time() + timeout_s
+        last_error: Optional[Exception] = None
+        first_attempt = True
+
+        while time.time() < end_time:
+            attempt_start = time.time()
+
+            try:
+                self._switch_to_default()
+
+                # Cortar cualquier navegación previa atorada
+                try:
+                    self.driver.execute_script("window.stop();")
+                except Exception:
+                    pass
+
+                # NO usar driver.get() como motor principal del retry.
+                # Simulamos más el comportamiento de cambiar la URL en la pestaña actual.
+                try:
+                    self.driver.execute_script(
+                        "window.location.replace(arguments[0]);",
+                        target_url,
+                    )
+                except Exception as exc:
+                    last_error = exc
+
+                # Dar una ventana corta para que la navegación haga commit
+                time.sleep(per_attempt_wait_s)
+
+                # Si ya cambió la URL o ya apareció el login, damos por bueno
+                try:
+                    current_url = (self.driver.current_url or "").strip().lower()
+                except Exception:
+                    current_url = ""
+
+                if target_url.lower() in current_url:
+                    try:
+                        self.find_element_anywhere(
+                            selectors=[
+                                (By.ID, "txt_Username"),
+                                (By.NAME, "txt_Username"),
+                                (By.ID, "txt_Password"),
+                                (By.NAME, "txt_Password"),
+                                (By.ID, "loginbutton"),
+                                (By.NAME, "loginbutton"),
+                            ],
+                            desc="pantalla de login Huawei en nueva IP",
+                            timeout_s=1,
+                            must_be_displayed=False,
+                        )
+                        return
+                    except Exception as exc:
+                        last_error = exc
+                else:
+                    # Aunque current_url no haya cambiado visualmente,
+                    # probar si el DOM del login ya existe
+                    try:
+                        self.find_element_anywhere(
+                            selectors=[
+                                (By.ID, "txt_Username"),
+                                (By.NAME, "txt_Username"),
+                                (By.ID, "txt_Password"),
+                                (By.NAME, "txt_Password"),
+                                (By.ID, "loginbutton"),
+                                (By.NAME, "loginbutton"),
+                            ],
+                            desc="pantalla de login Huawei en nueva IP",
+                            timeout_s=1,
+                            must_be_displayed=False,
+                        )
+                        return
+                    except Exception as exc:
+                        last_error = exc
+
+                # Fallback: solo si el primer mecanismo no reaccionó
+                try:
+                    self.driver.set_page_load_timeout(2)
+                except Exception:
+                    pass
+
+                try:
+                    self.driver.get(target_url)
+                except Exception as exc:
+                    last_error = exc
+                finally:
+                    try:
+                        self.driver.set_page_load_timeout(30)
+                    except Exception:
+                        pass
+
+                try:
+                    self.find_element_anywhere(
+                        selectors=[
+                            (By.ID, "txt_Username"),
+                            (By.NAME, "txt_Username"),
+                            (By.ID, "txt_Password"),
+                            (By.NAME, "txt_Password"),
+                            (By.ID, "loginbutton"),
+                            (By.NAME, "loginbutton"),
+                        ],
+                        desc="pantalla de login Huawei en nueva IP",
+                        timeout_s=1,
+                        must_be_displayed=False,
+                    )
+                    return
+                except Exception as exc:
+                    last_error = exc
+
+            except Exception as exc:
+                last_error = exc
+
+            elapsed = time.time() - attempt_start
+            remaining = retry_every_s - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+
+            first_attempt = False
+
+        raise RuntimeError(
+            f"La GUI Huawei no quedó accesible en la nueva IP '{new_ip}' "
+            f"dentro de {timeout_s}s. Último error: {last_error}"
+        )
+
     def wait_session_ready(self, timeout_s: Optional[int] = None) -> None:
         timeout = timeout_s or self.timeout_s
         end_time = time.time() + timeout
@@ -1102,10 +1304,12 @@ class HuaweiNavigator:
         except Exception:
             self.driver.execute_script("arguments[0].click();", apply_btn)
 
-        self._maybe_accept_alert(timeout_s=1)
+        self._maybe_accept_alert(timeout_s=3)
 
-        return { # 5) Devolver valores antes y después del cambio
+        return { # 4) Devolver valores antes y después del cambio
             "before": before,
-            "after": {},
+            "after": {
+                "ip": new_ip,
+            },
         }
     
