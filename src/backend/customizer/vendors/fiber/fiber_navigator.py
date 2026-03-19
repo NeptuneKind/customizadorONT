@@ -1014,7 +1014,7 @@ class FiberhomeNavigator:
             timeout_s=8,
         )
 
-        self.find_element_anywhere( # 3) Verificar emcpmtrando el input con la IP actual
+        self.find_element_anywhere( # 3) Verificar encontrando el input con la IP actual
             selectors=self._ip_field_selectors(),
             desc=f"campo IP FiberHome",
             timeout_s=6,

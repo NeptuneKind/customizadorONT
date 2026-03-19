@@ -5,6 +5,8 @@ from typing import Optional, Sequence, Tuple
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver, WebElement
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
 
 from src.backend.customizer.models import WifiBand
@@ -314,6 +316,23 @@ class HuaweiNavigator:
     # ==========================================================
     # Helpers específicos Huawei
     # ==========================================================
+    # Helper para asegurarse de estar en la página principal (index.asp)
+    def _ensure_main_page(self) -> None:
+        self._switch_to_default()
+
+        try:
+            current_url = (self.driver.current_url or "").lower()
+            if "index.asp" in current_url:
+                return
+        except Exception:
+            pass
+
+        try:
+            self.driver.get(f"{self.base_url}/index.asp")
+            time.sleep(0.5)
+        except Exception:
+            pass
+
     # Método para detectar y saltar el asistente inicial de Huawei si aparece, haciendo click en los botones correspondientes. Devuelve True si se detectó y saltó el asistente, False si no se detectó.
     def hw_maybe_skip_initial_guide(self, timeout_s: Optional[int] = None) -> bool:
         timeout = timeout_s or self.timeout_s
@@ -488,6 +507,14 @@ class HuaweiNavigator:
 
         raise RuntimeError("No fue posible confirmar sesión activa en Huawei")
 
+    # Helper para aceptar posibles alertas de Chrome al cambiar el SSID o password WiFi
+    def _maybe_accept_alert(self, timeout_s: int = 1) -> None:
+        try:
+            alert = WebDriverWait(self.driver, timeout_s).until(EC.alert_is_present())
+            alert.accept()
+            time.sleep(0.2)
+        except Exception:
+            pass
     # ==========================================================
     # Navegación WiFi
     # ==========================================================
@@ -952,3 +979,133 @@ class HuaweiNavigator:
             pass
 
         return True
+    
+    # ==========================================================
+    # IP (Gateway)
+    # ==========================================================       
+    # Helper para obtener los selectores del menú Advanced
+    def _advanced_menu_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "name_addconfig"),
+            (By.XPATH, "//div[@id='name_addconfig']"),
+            (By.XPATH, "//div[contains(normalize-space(.), 'Advanced')]"),
+        ]
+
+    # Helper para obtener los selectores del submenú LAN
+    def _lan_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "name_lanconfig"),
+            (By.XPATH, "//div[@id='name_lanconfig']"),
+            (By.XPATH, "//div[contains(normalize-space(.), 'LAN')]"),
+        ]
+    
+    # Helper para obtener los selectores del campo LAN Interface
+    def _ip_field_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "ethIpAddress"),
+            (By.NAME, "ethIpAddress"),
+            (By.CSS_SELECTOR, "input#ethIpAddress"),
+            (By.CSS_SELECTOR, "input[name='IpAddress']"),
+            (By.XPATH, "//input[@id='ethIpAddress']"),
+            (By.XPATH, "//input[@name='IpAddress']"),
+        ]
+    
+    # Helper para obtener los selectores del botón Apply/Save en la sección IP
+    def _apply_ip_button_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "btnApply"),
+            (By.CSS_SELECTOR, "input#btnApply"),
+            (By.CSS_SELECTOR, "input[type='button'][id='btnApply'][value='Apply']"),
+            (By.XPATH, "//input[@id='btnApply']"),
+            (By.XPATH, "//input[@type='button' and @id='btnApply' and @value='Apply']"),
+        ]
+
+    # Método para ir a la sección de configuración IP/LAN del equipo
+    def _go_to_ip_configuration(self) -> None:
+        try: # Verificación por si ya estamos en la sección de configuración LAN Host
+            self.find_element_anywhere(
+                selectors=self._ip_field_selectors(),
+                desc="pantalla IP/LAN Huawei ya cargada",
+                timeout_s=1,
+                must_be_displayed=False,
+            )
+            return
+        except Exception: # No estamos aún en la sección de configuración LAN Host
+            pass
+
+        self._ensure_main_page()
+
+        self.click_anywhere( # 1) Menú Advanced
+            selectors=self._advanced_menu_selectors(),
+            desc="menú Advanced Huawei",
+            timeout_s=8,
+        )
+
+        self.click_anywhere( # 2) LAN (LAN Host en automático)
+            selectors=self._lan_selectors(),
+            desc="menú LAN Host Huawei",
+            timeout_s=8,
+        )
+
+        self.find_element_anywhere( # 3) Verificar encontrando el input con la IP actual
+            selectors=self._ip_field_selectors(),
+            desc="campo IP Huawei",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+
+    # Método para leer la configuración actual de IP/LAN
+    def read_ip_configuration(self) -> dict:
+        self._go_to_ip_configuration()
+
+        ip_field = self.find_element_anywhere(
+            selectors=self._ip_field_selectors(),
+            desc="campo IP Huawei",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+
+        return {
+            "ip": self._get_input_value(ip_field),
+        }
+
+    # Método para actualizar la IP/LAN del equipo
+    def update_ip_configuration(self, new_ip: str) -> dict:
+        self._go_to_ip_configuration() # 1) Ir a la sección de LAN Settings
+
+        if not new_ip or not str(new_ip).strip():
+            raise RuntimeError("No se recibió nueva IP para Huawei")
+
+        new_ip = str(new_ip).strip()
+
+        ip_field = self.find_element_anywhere( # 2) Buscar campo IP
+            selectors=self._ip_field_selectors(),
+            desc="campo IP Huawei",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+
+        before = { # 2a) Guardar valor de IP antes de modificar para devolver al final
+            "ip": self._get_input_value(ip_field),
+        }
+
+        self._set_input_value(ip_field, new_ip) # 2b) Actualizar campo IP con nueva IP
+
+        apply_btn = self.find_element_anywhere( # 3) Buscar botón Apply y hacer click para guardar cambios
+            selectors=self._apply_ip_button_selectors(),
+            desc="botón Apply IP Huawei",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+        try:
+            apply_btn.click()
+        except Exception:
+            self.driver.execute_script("arguments[0].click();", apply_btn)
+
+        self._maybe_accept_alert(timeout_s=1)
+
+        return { # 5) Devolver valores antes y después del cambio
+            "before": before,
+            "after": {},
+        }
+    

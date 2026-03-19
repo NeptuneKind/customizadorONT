@@ -347,6 +347,119 @@ class HuaweiAdapter:
             },
         })
 
+    def _apply_ip_plan(
+        self,
+        navigator: HuaweiNavigator,
+        plan: CustomizationPlan,
+        result: HuaweiCustomizationResult,
+        progress: ProgressCallback,
+        ctx: CustomizationContext,
+    ) -> None:
+        ip_plan = getattr(plan, "ip", None)
+
+        if ip_plan is None:
+            result.steps.append({
+                "step": "ip_skip",
+                "data": {"reason": "El plan no contiene bloque de IP"},
+            })
+            return
+
+        enabled = getattr(ip_plan, "enabled", False)
+        if not enabled:
+            result.steps.append({
+                "step": "ip_disabled",
+                "data": {"reason": "El plan no habilitó cambio de IP"},
+            })
+            return
+
+        new_ip = self._normalize_optional_text(
+            getattr(ip_plan, "new_ip", None)
+        )
+
+        if new_ip is None:
+            result.steps.append({
+                "step": "ip_skip",
+                "data": {"reason": "No se recibió nueva IP a aplicar"},
+            })
+            return
+
+        old_ip = ctx.ip
+
+        self._emit(
+            progress,
+            "IP",
+            "Leyendo configuración actual de IP",
+            {"current_ip": old_ip},
+        )
+
+        try:
+            before_data = navigator.read_ip_configuration()
+        except Exception as e:
+            raise RuntimeError(f"Error leyendo IP actual Huawei: {e}")
+
+        self._emit(
+            progress,
+            "IP",
+            "Aplicando nueva IP",
+            {
+                "old_ip": old_ip,
+                "new_ip": new_ip,
+            },
+        )
+
+        try:
+            change_data = navigator.update_ip_configuration(new_ip=new_ip)
+        except Exception as e:
+            raise RuntimeError(f"Error aplicando nueva IP Huawei: {e}")
+
+        self._emit(
+            progress,
+            "IP",
+            "Validando cambio de IP",
+            {"new_ip": new_ip},
+        )
+
+        try:
+            after_data = navigator.read_ip_configuration()
+        except Exception as e:
+            raise RuntimeError(f"Error leyendo IP Huawei después de aplicar: {e}")
+
+        self._validate_ip_change(
+            old_ip=old_ip,
+            new_ip=new_ip,
+            after_data=after_data,
+            result=result,
+        )
+
+        result.steps.append({
+            "step": "ip_configuration",
+            "data": {
+                "before": {
+                    "ip": before_data.get("ip", old_ip),
+                },
+                "after": {
+                    "ip": after_data.get("ip", new_ip),
+                },
+                "requested": {
+                    "ip": new_ip,
+                },
+            },
+        })
+
+    def _validate_ip_change(
+        self,
+        old_ip: str,
+        new_ip: str,
+        after_data: Dict[str, Any],
+        result: HuaweiCustomizationResult,
+    ) -> None:
+        obtained_ip = str(after_data.get("ip", "") or "").strip()
+
+        if obtained_ip != new_ip:
+            result.errors.append(
+                f"IP Huawei no coincide. Esperado='{new_ip}' obtenido='{obtained_ip}'"
+            )
+
     def apply(
         self,
         plan: CustomizationPlan,
@@ -376,8 +489,31 @@ class HuaweiAdapter:
                 result=result,
                 progress=progress,
             )
+            self._apply_ip_plan(
+                navigator=navigator,
+                plan=plan,
+                result=result,
+                progress=progress,
+                ctx=ctx,
+            )
+
+            result.ok = len(result.errors) == 0
+            return result
+        
         except Exception as exc:
             result.errors.append(str(exc))
+            result.ok = False
 
-        result.ok = len(result.errors) == 0
+        finally:
+            try:
+                self._emit(progress, "LOGOUT", "Cerrando sesión Huawei", None)
+                navigator.logout()
+            except Exception as logout_exc:
+                result.steps.append({
+                    "step": "logout_warning",
+                    "data": {
+                        "warning": f"No fue posible cerrar sesión Huawei: {logout_exc}"
+                    },
+                })
+
         return result

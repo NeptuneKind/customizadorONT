@@ -324,6 +324,72 @@ class ZTENavigator:
 
         self.wait_session_ready()
 
+    # Método específico para login de verificación de credenciales web
+    def login_for_verification(self, username: str, password: str) -> None:
+        username_field = self.find_element_anywhere(
+            selectors=[
+                (By.ID, "Frm_Username"),
+                (By.NAME, "Frm_Username"),
+                (By.ID, "username"),
+                (By.NAME, "username"),
+                (By.ID, "user"),
+                (By.NAME, "user"),
+                (By.ID, "user_name"),
+                (By.NAME, "user_name"),
+                (By.CSS_SELECTOR, "input[type='text']"),
+            ],
+            desc="campo username FiberHome",
+            timeout_s=6,
+        )
+
+        password_field = None
+        for selectors in [
+            [(By.ID, "Frm_Password"), (By.NAME, "Frm_Password")],
+            [(By.ID, "password"), (By.NAME, "password")],
+        ]:
+            try:
+                password_field = self.find_element_anywhere(
+                    selectors=selectors,
+                    desc="campo password FiberHome",
+                    timeout_s=2,
+                    must_be_displayed=False,
+                )
+                break
+            except Exception:
+                continue
+
+        if password_field is None:
+            raise RuntimeError("No se encontró campo password FiberHome en login de verificación")
+
+        login_button = self.find_element_anywhere(
+            selectors=[
+                (By.ID, "login_btn"),
+                (By.ID, "login"),
+                (By.ID, "LoginId"),
+            ],
+            desc="botón login FiberHome",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+
+        self._set_input_value(username_field, username)
+        self._set_input_value(password_field, password)
+
+        try:
+            self.driver.execute_script("arguments[0].click();", login_button)
+        except Exception:
+            login_button.click()
+
+        self._maybe_accept_alert(timeout_s=1)
+        self.wait_session_ready()
+
+        self.find_element_anywhere(
+            selectors=self._logout_button_selectors(),
+            desc="botón Logout FiberHome después de login de verificación",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+
     # Helper para esperar a que la sesión esté lista comprobando la aparición de elementos del menú principal o la ausencia del botón de login
     def wait_session_ready(self, timeout_s: Optional[int] = None) -> None:
         timeout = timeout_s or self.timeout_s

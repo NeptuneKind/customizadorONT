@@ -166,18 +166,33 @@ def main() -> int:
         # Huawei
         elif model in ("MOD003", "MOD004", "MOD005", "MOD007"):
             plan = CustomizationPlan(
-                wifi=WifiPlan(
-                    enabled=True,
-                    ssid_24="MiSSID_24",
-                    pass_24="MiPass_24",
-                    ssid_5="XDDD",
-                    pass_5="XDDDDDDD",
-                ),
-                web_credentials=WebCredentialsPlan(
-                    enabled=True,
-                    old_password="admin",
-                    new_password="NuevaPassWeb123",
-                ),
+                # wifi=WifiPlan(
+                #     enabled=True,
+                #     ssid_24="MiSSID_24",
+                #     pass_24="MiPass_24",
+                #     ssid_5="XDDD",
+                #     pass_5="XDDDDDDD",
+                # ),
+                # web_credentials=WebCredentialsPlan(
+                #     enabled=True,
+                #     old_password="admin",
+                #     new_password="NuevaPassWeb123",
+                # ),
+                # wifi=WifiPlan(
+                #     enabled=True,
+                #     ssid_24="MiSSID_24",
+                #     pass_24="MiPass_24",
+                #     ssid_5="XDDD",
+                #     pass_5="XDDDDDDD",
+                # ),
+                # web_credentials=WebCredentialsPlan(
+                #     enabled=True,
+                #     old_password="admin",
+                #     new_password="NuevaPassWeb123",
+                # ),
+                wifi=WifiPlan(enabled=False), # Deshabilitado temporalmente para FiberHome por pruebas
+                web_credentials=WebCredentialsPlan(enabled=False), # Deshabilitado temporalmente para FiberHome por pruebas
+                ip=IPPlan(enabled=True, new_ip="192.168.101.1")
             )
             
             exit_code = run_customization(
