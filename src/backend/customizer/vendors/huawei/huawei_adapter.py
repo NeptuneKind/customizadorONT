@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -50,6 +51,13 @@ class HuaweiAdapter:
         return HuaweiNavigator(
             driver=ctx.driver,
             base_url=f"http://{ctx.ip}",
+            timeout_s=10,
+        )
+
+    def _build_navigator_for_ip(self, driver, ip: str) -> HuaweiNavigator:
+        return HuaweiNavigator(
+            driver=driver,
+            base_url=f"http://{ip}",
             timeout_s=10,
         )
 
@@ -347,12 +355,165 @@ class HuaweiAdapter:
             },
         })
 
+    def _apply_ip_plan(
+    self,
+    navigator: HuaweiNavigator,
+    plan: CustomizationPlan,
+    result: HuaweiCustomizationResult,
+    progress: ProgressCallback,
+    ctx: CustomizationContext,
+) -> None:
+        ip_plan = getattr(plan, "ip", None)
+
+        if ip_plan is None:
+            result.steps.append({
+                "step": "ip_skip",
+                "data": {"reason": "El plan no contiene bloque de IP"},
+            })
+            return
+
+        enabled = getattr(ip_plan, "enabled", False)
+        if not enabled:
+            result.steps.append({
+                "step": "ip_disabled",
+                "data": {"reason": "El plan no habilitó cambio de IP"},
+            })
+            return
+
+        new_ip = self._normalize_optional_text(getattr(ip_plan, "new_ip", None))
+
+        if new_ip is None:
+            result.steps.append({
+                "step": "ip_skip",
+                "data": {"reason": "No se recibió nueva IP a aplicar"},
+            })
+            return
+
+        old_ip = ctx.ip
+
+        self._emit(
+            progress,
+            "IP",
+            "Leyendo configuración actual de IP",
+            {"current_ip": old_ip},
+        )
+
+        try:
+            before_data = navigator.read_ip_configuration()
+        except Exception as e:
+            raise RuntimeError(f"Error leyendo IP actual Huawei: {e}")
+
+        self._emit(
+            progress,
+            "IP",
+            "Aplicando nueva IP",
+            {
+                "old_ip": old_ip,
+                "new_ip": new_ip,
+            },
+        )
+
+        previous_handle = ctx.driver.current_window_handle
+        verification_tab_handle: Optional[str] = None
+
+        try:
+            navigator.update_ip_configuration(new_ip=new_ip)
+            self._emit(
+                progress,
+                "IP",
+                "Esperando estabilización post-Apply Huawei",
+                {
+                    "new_ip": new_ip,
+                    "wait_s": 2.0,
+                },
+            )
+            time.sleep(2.0)
+
+            self._emit(
+                progress,
+                "IP",
+                "Abriendo pestaña secundaria de verificación Huawei",
+                {"new_ip": new_ip},
+            )
+
+            previous_handle = navigator.open_blank_verification_tab()
+            verification_tab_handle = ctx.driver.current_window_handle
+
+            self._emit(
+                progress,
+                "IP",
+                "Verificando acceso en la nueva IP Huawei",
+                {
+                    "old_ip": old_ip,
+                    "new_ip": new_ip,
+                    "mode": "verification_tab",
+                },
+            )
+
+            verification_navigator = self._build_navigator_for_ip(ctx.driver, new_ip)
+            verification_navigator.switch_to_window(verification_tab_handle)
+
+            self._emit(
+                progress,
+                "IP",
+                "Esperando acceso a la GUI en la nueva IP Huawei",
+                {
+                    "new_ip": new_ip,
+                    "retry_every_s": 0.75,
+                    "tab": "secondary",
+                },
+            )
+
+            verification_navigator.wait_until_login_accessible_on_new_ip(
+                new_ip=new_ip,
+                timeout_s=20,
+                retry_every_s=0.75,
+            )
+
+            verification_navigator.login_for_verification(
+                username="root",
+                password="admin",
+            )
+
+            self._emit(
+                progress,
+                "IP",
+                "Cerrando sesión de verificación Huawei",
+                {"new_ip": new_ip},
+            )
+
+            verification_navigator.logout()
+
+        finally:
+            try:
+                if verification_tab_handle is not None:
+                    verification_navigator = self._build_navigator_for_ip(ctx.driver, new_ip)
+                    verification_navigator.switch_to_window(verification_tab_handle)
+                    verification_navigator.close_current_tab_and_switch_back(previous_handle)
+            except Exception:
+                pass
+
+        result.ip = new_ip
+
+        result.steps.append({
+            "step": "ip_configuration",
+            "data": {
+                "before": {
+                    "ip": before_data.get("ip", old_ip),
+                },
+                "applied": {
+                    "ip": new_ip,
+                },
+                "verified_change": True,
+            },
+        })
+
     def apply(
-        self,
-        plan: CustomizationPlan,
-        ctx: CustomizationContext,
-        progress: ProgressCallback,
-    ) -> HuaweiCustomizationResult:
+    self,
+    plan: CustomizationPlan,
+    ctx: CustomizationContext,
+    progress: ProgressCallback,
+) -> HuaweiCustomizationResult:
         result = HuaweiCustomizationResult(
             ok=True,
             vendor=ctx.vendor,
@@ -361,23 +522,62 @@ class HuaweiAdapter:
             product=resolve_product_name(ctx.model_code),
         )
 
+        navigator: Optional[HuaweiNavigator] = None
+        should_logout = True
+
         try:
             navigator = self._build_navigator(ctx)
             self._do_login(navigator=navigator, ctx=ctx, progress=progress)
+
             self._apply_wifi_plan(
                 navigator=navigator,
                 plan=plan,
                 result=result,
                 progress=progress,
             )
+
             self._apply_web_credentials_plan(
                 navigator=navigator,
                 plan=plan,
                 result=result,
                 progress=progress,
             )
+
+            ip_plan = getattr(plan, "ip", None)
+            ip_enabled = bool(ip_plan and getattr(ip_plan, "enabled", False))
+            requested_new_ip = self._normalize_optional_text(
+                getattr(ip_plan, "new_ip", None) if ip_plan is not None else None
+            )
+
+            if ip_enabled and requested_new_ip:
+                should_logout = False
+
+            self._apply_ip_plan(
+                navigator=navigator,
+                plan=plan,
+                result=result,
+                progress=progress,
+                ctx=ctx,
+            )
+
+            result.ok = len(result.errors) == 0
+            return result
+
         except Exception as exc:
             result.errors.append(str(exc))
+            result.ok = False
 
-        result.ok = len(result.errors) == 0
+        finally:
+            if should_logout and navigator is not None:
+                try:
+                    self._emit(progress, "LOGOUT", "Cerrando sesión Huawei", None)
+                    navigator.logout()
+                except Exception as logout_exc:
+                    result.steps.append({
+                        "step": "logout_warning",
+                        "data": {
+                            "warning": f"No fue posible cerrar sesión Huawei: {logout_exc}"
+                        },
+                    })
+
         return result
