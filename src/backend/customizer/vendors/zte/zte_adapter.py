@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -46,6 +48,14 @@ class ZTEAdapter:
             driver=ctx.driver,
             base_url=f"http://{ctx.ip}",
             timeout_s=10,
+        )
+    
+    # Método para crear una instancia de ZTENavigator apuntando a una IP específica (usado para verificación post-cambio de IP)
+    def _build_navigator_for_ip(self, driver, ip: str) -> ZTENavigator:
+        return ZTENavigator(
+            driver=driver,
+            base_url=f"http://{ip}",
+            timeout_s=12,
         )
     
     # Método que encapsula el login y espera sesión lista
@@ -321,6 +331,185 @@ class ZTEAdapter:
             },
         })
 
+    def _apply_ip_plan(
+        self,
+        navigator: ZTENavigator,
+        plan: CustomizationPlan,
+        result: ZTECustomizationResult,
+        progress: ProgressCallback,
+        ctx: CustomizationContext,
+    ) -> None:
+        ip_plan = getattr(plan, "ip", None)
+
+        if ip_plan is None:
+            result.steps.append({
+                "step": "ip_skip",
+                "data": {"reason": "El plan no contiene bloque de IP"},
+            })
+            return
+
+        enabled = getattr(ip_plan, "enabled", False)
+        if not enabled:
+            result.steps.append({
+                "step": "ip_disabled",
+                "data": {"reason": "El plan no habilitó cambio de IP"},
+            })
+            return
+
+        new_ip = self._normalize_optional_text(getattr(ip_plan, "new_ip", None))
+
+        if new_ip is None:
+            result.steps.append({
+                "step": "ip_skip",
+                "data": {"reason": "No se recibió nueva IP a aplicar"},
+            })
+            return
+
+        old_ip = ctx.ip
+
+        self._emit(
+            progress,
+            "IP",
+            "Leyendo configuración actual de IP",
+            {"current_ip": old_ip},
+        )
+
+        try:
+            before_data = navigator.read_ip_configuration()
+        except Exception as e:
+            raise RuntimeError(f"Error leyendo IP actual ZTE: {e}")
+
+        self._emit(
+            progress,
+            "IP",
+            "Aplicando nueva IP",
+            {
+                "old_ip": old_ip,
+                "new_ip": new_ip,
+            },
+        )
+
+        previous_handle = ctx.driver.current_window_handle
+        verification_tab_handle: Optional[str] = None
+        
+        try:
+            navigator.update_ip_configuration(new_ip=new_ip)
+
+            self._emit(
+                progress,
+                "IP",
+                "Cambio de IP aplicado ZTE",
+                {
+                    "old_ip": old_ip,
+                    "new_ip": new_ip,
+                },
+            )
+
+            self._emit(
+                progress,
+                "IP",
+                "Esperando 32 segundos antes de preparar pestaña de verificación",
+                {
+                    "new_ip": new_ip,
+                    "wait_s": 32,
+                },
+            )
+            time.sleep(32)
+
+            self._emit(
+                progress,
+                "IP",
+                "Abriendo pestaña secundaria de verificación ZTE",
+                {"new_ip": new_ip},
+            )
+
+            previous_handle = navigator.open_blank_verification_tab()
+            verification_tab_handle = ctx.driver.current_window_handle
+
+            verification_navigator = self._build_navigator_for_ip(ctx.driver, new_ip)
+            verification_navigator.switch_to_window(verification_tab_handle)
+
+            # self._emit(
+            #     progress,
+            #     "IP",
+            #     "Esperando 5 segundos adicionales antes del sondeo",
+            #     {
+            #         "new_ip": new_ip,
+            #         "wait_s": 5,
+            #     },
+            # )
+            # time.sleep(5)
+
+            self._emit(
+                progress,
+                "IP",
+                "Validando acceso en la nueva IP ZTE",
+                {
+                    "old_ip": old_ip,
+                    "new_ip": new_ip,
+                    "mode": "verification_tab",
+                    "retry_every_s": 5.0,
+                },
+            )
+
+            verification_navigator.wait_until_login_accessible_on_new_ip(
+                new_ip=new_ip,
+                timeout_s=90,
+                retry_every_s=5.0,
+            )
+
+            verification_navigator.login_for_verification(
+                username="root",
+                password="admin",
+            )
+
+            self._emit(
+                progress,
+                "IP",
+                "Cerrando sesión de verificación ZTE",
+                {"new_ip": new_ip},
+            )
+
+            verification_navigator.logout()
+
+        finally:
+            try:
+                if verification_tab_handle is not None:
+                    verification_navigator = self._build_navigator_for_ip(ctx.driver, new_ip)
+                    verification_navigator.switch_to_window(verification_tab_handle)
+                    verification_navigator.close_current_tab_and_switch_back(previous_handle)
+            except Exception:
+                pass
+
+        result.ip = new_ip
+
+        result.steps.append({
+            "step": "ip_configuration",
+            "data": {
+                "before": {
+                    "ip": before_data.get("ip", old_ip),
+                },
+                "applied": {
+                    "ip": new_ip,
+                },
+                "verified_change": True,
+            },
+        })
+
+    def _validate_ip_change(
+        self,
+        old_ip: str,
+        new_ip: str,
+        after_data: Dict[str, Any],
+        result: ZTECustomizationResult,
+    ) -> None:
+        obtained_ip = str(after_data.get("ip", "") or "").strip()
+
+        if obtained_ip != new_ip:
+            result.errors.append(
+                f"IP ZTE no coincide. Esperado='{new_ip}' obtenido='{obtained_ip}'"
+            )
+
     # Método principal que aplica el plan completo usando el ZTENavigator y devuelve un resultado estructurado con toda la información relevante
     def apply(
         self,
@@ -368,6 +557,15 @@ class ZTEAdapter:
                 plan=plan,
                 result=result,
                 progress=progress,
+            )
+
+            # 4) Customización de IP
+            self._apply_ip_plan(
+                navigator=navigator,
+                plan=plan,
+                result=result,
+                progress=progress,
+                ctx=ctx,
             )
 
             result.ok = len(result.errors) == 0

@@ -30,6 +30,23 @@ class ZTENavigator:
         self.driver.switch_to.default_content()
         self.driver.get(f"{self.base_url}/")
 
+    # Helper para asegurarse de estar en la página principal (IP default)
+    def _ensure_main_page(self) -> None:
+        self._switch_to_default()
+
+        try:
+            current_url = (self.driver.current_url or "").lower()
+            if "192.168.1.1" in current_url:
+                return
+        except Exception:
+            pass
+
+        try:
+            self.driver.get(f"{self.base_url}")
+            time.sleep(0.5)
+        except Exception:
+            pass
+
     # Helper para resetear el contexto de navegación al documento principal (fuera de frames/iframes)
     def _switch_to_default(self) -> None:
         try:
@@ -390,6 +407,210 @@ class ZTENavigator:
             must_be_displayed=False,
         )
 
+    # Helper para abrir una nueva pestaña en blanco
+    def open_blank_verification_tab(
+        self,
+        timeout_s: float = 5.0,
+        max_attempts: int = 2,
+    ) -> str:
+        previous_handle = self.driver.current_window_handle
+        last_error: Optional[Exception] = None
+
+        for _ in range(max_attempts):
+            existing_handles = list(self.driver.window_handles)
+
+            try:
+                self.driver.switch_to.new_window("tab")
+            except Exception as exc:
+                last_error = exc
+            else:
+                try:
+                    WebDriverWait(self.driver, timeout_s).until(
+                        lambda d: len(d.window_handles) > len(existing_handles)
+                    )
+                except Exception as exc:
+                    last_error = exc
+
+                try:
+                    new_handles = [h for h in self.driver.window_handles if h not in existing_handles]
+                    if not new_handles:
+                        raise RuntimeError("No se detectó el handle de la nueva pestaña")
+
+                    self.driver.switch_to.window(new_handles[-1])
+                    self._switch_to_default()
+
+                    WebDriverWait(self.driver, timeout_s).until(
+                        lambda d: d.execute_script("return document.readyState") in ("interactive", "complete")
+                    )
+
+                    return previous_handle
+                except Exception as exc:
+                    last_error = exc
+
+            try:
+                self.driver.switch_to.window(previous_handle)
+                self._switch_to_default()
+            except Exception:
+                pass
+
+            try:
+                self.driver.execute_script("window.open('about:blank', '_blank');")
+
+                WebDriverWait(self.driver, timeout_s).until(
+                    lambda d: len(d.window_handles) > len(existing_handles)
+                )
+
+                new_handles = [h for h in self.driver.window_handles if h not in existing_handles]
+                if not new_handles:
+                    raise RuntimeError("No se detectó el handle de la nueva pestaña")
+
+                self.driver.switch_to.window(new_handles[-1])
+                self._switch_to_default()
+
+                WebDriverWait(self.driver, timeout_s).until(
+                    lambda d: d.execute_script("return document.readyState") in ("interactive", "complete")
+                )
+
+                return previous_handle
+
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.25)
+
+            try:
+                self.driver.switch_to.window(previous_handle)
+                self._switch_to_default()
+            except Exception:
+                pass
+
+        raise RuntimeError(f"No fue posible abrir una nueva pestaña de verificación: {last_error}")
+
+    # Helper para cambiar entre pestañas del driver
+    def switch_to_window(self, handle: str) -> None:
+        self.driver.switch_to.window(handle)
+        self._switch_to_default()
+
+    # Helper para cerrar pestaña actual y volver a la pestaña anterior
+    def close_current_tab_and_switch_back(self, previous_handle: str) -> None:
+        self.driver.close()
+        self.driver.switch_to.window(previous_handle)
+        self._switch_to_default()
+
+    # Helper para esperar hasta que la GUI de login quede accesible en la nueva IP después de un cambio de IP
+    def wait_until_login_accessible_on_new_ip(
+        self,
+        new_ip: str,
+        timeout_s: int = 90,
+        retry_every_s: float = 5.0,
+        per_attempt_wait_s: float = 1.5,
+    ) -> None:
+        target_url = f"http://{str(new_ip).strip()}"
+        end_time = time.time() + timeout_s
+        last_error: Optional[Exception] = None
+
+        login_selectors=[
+            (By.ID, "Frm_Username"),
+            (By.NAME, "Frm_Username"),
+            (By.ID, "username"),
+            (By.NAME, "username"),
+            (By.ID, "user"),
+            (By.NAME, "user"),
+            (By.ID, "user_name"),
+            (By.NAME, "user_name"),
+            (By.CSS_SELECTOR, "input[type='text']"),
+        ]
+
+        while time.time() < end_time:
+            attempt_start = time.time()
+
+            try:
+                self._switch_to_default()
+
+                try:
+                    self.driver.execute_script("window.stop();")
+                except Exception:
+                    pass
+
+                try:
+                    self.driver.execute_script(
+                        "window.location.replace(arguments[0]);",
+                        target_url,
+                    )
+                except Exception as exc:
+                    last_error = exc
+
+                time.sleep(per_attempt_wait_s)
+
+                try:
+                    current_url = (self.driver.current_url or "").strip().lower()
+                except Exception:
+                    current_url = ""
+
+                if str(new_ip).strip().lower() in current_url:
+                    try:
+                        self.find_element_anywhere(
+                            selectors=login_selectors,
+                            desc="pantalla de login ZTE en nueva IP",
+                            timeout_s=1,
+                            must_be_displayed=False,
+                        )
+                        return
+                    except Exception as exc:
+                        last_error = exc
+                else:
+                    try:
+                        self.find_element_anywhere(
+                            selectors=login_selectors,
+                            desc="pantalla de login ZTE en nueva IP",
+                            timeout_s=1,
+                            must_be_displayed=False,
+                        )
+                        return
+                    except Exception as exc:
+                        last_error = exc
+
+                try:
+                    self.driver.set_page_load_timeout(2)
+                except Exception:
+                    pass
+
+                try:
+                    self.driver.get(target_url)
+                except Exception as exc:
+                    last_error = exc
+                finally:
+                    try:
+                        self.driver.set_page_load_timeout(30)
+                    except Exception:
+                        pass
+
+                try:
+                    self.find_element_anywhere(
+                        selectors=login_selectors,
+                        desc="pantalla de login ZTE en nueva IP",
+                        timeout_s=1,
+                        must_be_displayed=False,
+                    )
+                    return
+                except Exception as exc:
+                    last_error = exc
+
+            except Exception as exc:
+                last_error = exc
+
+            elapsed = time.time() - attempt_start
+            remaining = retry_every_s - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+
+        raise RuntimeError(
+            f"No fue posible acceder al login ZTE en la nueva IP '{new_ip}': {last_error}"
+        )
+
+    # Método para asegurar que etamos logueados, esperando a que la sesión esté lista
+    def ensure_logged_in(self) -> None:
+        self.wait_session_ready()
+
     # Helper para esperar a que la sesión esté lista comprobando la aparición de elementos del menú principal o la ausencia del botón de login
     def wait_session_ready(self, timeout_s: Optional[int] = None) -> None:
         timeout = timeout_s or self.timeout_s
@@ -420,6 +641,60 @@ class ZTENavigator:
 
         raise RuntimeError("No fue posible confirmar sesión activa en ZTE")
 
+    # Helper para aceptar posibles alertas de Chrome al cambiar el SSID o password WiFi
+    def _maybe_accept_alert(self, timeout_s: int = 1) -> None:
+        try:
+            alert = WebDriverWait(self.driver, timeout_s).until(EC.alert_is_present())
+            alert.accept()
+            time.sleep(0.2)
+        except Exception:
+            pass
+
+            # Helper para obtener los selectores del botón Logout
+    
+    # Helper para obtener los selectores del botón Logout en la GUI de ZTE, usado para validar que el login de verificación fue exitoso
+    def _logout_button_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "LogOffLnk"),
+            (By.XPATH, "//*[contains(normalize-space(.), 'Logout')]"),
+            (By.XPATH, "//*[contains(normalize-space(.), 'Log out')]"),
+        ]
+    
+    # Método para cerrar sesión y validar login con nuevas credenciales
+    def logout(self) -> None:
+        try:
+            logout_btn = self.find_element_anywhere(
+                selectors=[
+                    (By.ID, "logOff"),
+                    (By.XPATH, "//*[@id='logOff']"),
+                    (By.ID, "LogOffLnk"),
+                    (By.XPATH, "//*[@id='LogOffLnk']"),
+                ],
+                desc="Logout",
+                timeout_s=5,
+                must_be_displayed=False,
+            )
+
+            try:
+                self.driver.execute_script(
+                    "arguments[0].scrollIntoView({block:'center', inline:'center'});",
+                    logout_btn,
+                )
+            except Exception:
+                pass
+
+            try:
+                logout_btn.click()
+            except Exception:
+                self.driver.execute_script("arguments[0].click();", logout_btn)
+
+            time.sleep(1.5)
+
+        except Exception:
+            # Si no aparece logout, intentamos volver a la raíz;
+            # no levantamos excepción para no romper la validación.
+            self._open_root()
+            time.sleep(1.5)
     # ==========================================================
     # Helpers para configuración de SSID y password WiFi
     # ==========================================================
@@ -649,42 +924,6 @@ class ZTENavigator:
     # ==========================================================
     # Helpers para credenciales web
     # ==========================================================
-    # Método para cerrar sesión y validar login con nuevas credenciales
-    def logout(self) -> None:
-        try:
-            logout_btn = self.find_element_anywhere(
-                selectors=[
-                    (By.ID, "logOff"),
-                    (By.XPATH, "//*[@id='logOff']"),
-                    (By.ID, "LogOffLnk"),
-                    (By.XPATH, "//*[@id='LogOffLnk']"),
-                ],
-                desc="Logout",
-                timeout_s=5,
-                must_be_displayed=False,
-            )
-
-            try:
-                self.driver.execute_script(
-                    "arguments[0].scrollIntoView({block:'center', inline:'center'});",
-                    logout_btn,
-                )
-            except Exception:
-                pass
-
-            try:
-                logout_btn.click()
-            except Exception:
-                self.driver.execute_script("arguments[0].click();", logout_btn)
-
-            time.sleep(1.5)
-
-        except Exception:
-            # Si no aparece logout, intentamos volver a la raíz;
-            # no levantamos excepción para no romper la validación.
-            self._open_root()
-            time.sleep(1.5)
-
     # Método para validar que la nueva contraseña web realmente quedó aplicada
     def verify_web_password_login(self, username: str, password: str) -> None:
         self.logout()
@@ -961,3 +1200,252 @@ class ZTENavigator:
             save_button.click()
 
         time.sleep(3)
+
+        # ==========================================================
+    
+    # ==========================================================
+    # IP (Gateway)
+    # ==========================================================
+    # Helper para obtener los selectores del menú Local Network
+    def _local_network_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "localnet"),
+        ]
+
+    # Helper para obtener los selectores del submenú
+    def _lan_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "lanConfig"),
+        ]
+
+    # Helper para obtener los selectores del toggle DHCP Server
+    def _dhcp_toggle_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "DHCPBasicCfgBar"),
+        ]
+
+    # Helper para obtener los selectores del campo del primer octeto de la IP
+    def _ip_field1_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "sub_IPAddr0:DHCPBasicCfg"),
+            (By.NAME, "sub_IPAddr0:DHCPBasicCfg"),
+            (By.CSS_SELECTOR, "input[id='sub_IPAddr0:DHCPBasicCfg']"),
+            (By.XPATH, "//*[@id='sub_IPAddr0:DHCPBasicCfg']"),
+        ]
+    
+    # Helper para obtener los selectores del campo del segundo octeto de la IP
+    def _ip_field2_selectors(self) -> Sequence[Locator]:
+            return [
+            (By.ID, "sub_IPAddr1:DHCPBasicCfg"),
+            (By.NAME, "sub_IPAddr1:DHCPBasicCfg"),
+            (By.CSS_SELECTOR, "input[id='sub_IPAddr1:DHCPBasicCfg']"),
+            (By.XPATH, "//*[@id='sub_IPAddr1:DHCPBasicCfg']"),
+        ]
+
+    # Helper para obtener los selectores del campo del tercer octeto de la IP
+    def _ip_field3_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "sub_IPAddr2:DHCPBasicCfg"),
+            (By.NAME, "sub_IPAddr2:DHCPBasicCfg"),
+            (By.CSS_SELECTOR, "input[id='sub_IPAddr2:DHCPBasicCfg']"),
+            (By.XPATH, "//*[@id='sub_IPAddr2:DHCPBasicCfg']"),
+        ]
+
+    # Helper para obtener los selectores del campo del último octeto de la IP
+    def _ip_field4_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "sub_IPAddr3:DHCPBasicCfg"),
+            (By.NAME, "sub_IPAddr3:DHCPBasicCfg"),
+            (By.CSS_SELECTOR, "input[id='sub_IPAddr3:DHCPBasicCfg']"),
+            (By.XPATH, "//*[@id='sub_IPAddr3:DHCPBasicCfg']"),
+        ]
+
+    # Helper para obtener los selectores del botón Apply/Save en la sección IP
+    def _apply_ip_button_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "Btn_apply_DHCPBasicCfg"),
+        ]
+
+    # Método para ir a la sección de configuración IP/LAN del equipo
+    def _go_to_ip_configuration(self) -> None:
+        try: # 0) Si ya estamos en la pantalla y el primer octeto ya existe, no navegar de nuevo
+            self.find_element_anywhere(
+                selectors=self._ip_field1_selectors(),
+                desc="campo 1 IP ZTE ya visible",
+                timeout_s=1,
+                must_be_displayed=False,
+            )
+            return
+        except Exception: # No estamos aún en la sección de configuración LAN
+            pass
+        
+        # 1) Si ya estamos en LAN pero la sección DHCP Server no está expandida, expandirla
+        try:
+            self.find_element_anywhere(
+                selectors=self._dhcp_toggle_selectors(),
+                desc="barra DHCP Server ZTE",
+                timeout_s=1,
+                must_be_displayed=False,
+            )
+
+            self.click_anywhere(
+                selectors=self._dhcp_toggle_selectors(),
+                desc="menú DHCP Server ZTE",
+                timeout_s=6,
+            )
+
+            self.find_element_anywhere(
+                selectors=[(By.ID, "template_DHCPBasicCfg")],
+                desc="template DHCPBasicCfg ZTE",
+                timeout_s=10,
+                must_be_displayed=False,
+            )
+
+            self.find_element_anywhere(
+                selectors=self._ip_field1_selectors(),
+                desc="campo 1 IP ZTE",
+                timeout_s=10,
+                must_be_displayed=False,
+            )
+            return
+        except Exception:
+            pass
+
+        # 2) Navegación normal desde el menú principal
+        self._ensure_main_page()
+
+        self.click_anywhere( # 3) Menú Local Network
+            selectors=self._local_network_selectors(),
+            desc="menú Local Network ZTE",
+            timeout_s=8,
+        )
+
+        self.click_anywhere( # 4) LAN
+            selectors=self._lan_selectors(),
+            desc="menú LAN ZTE",
+            timeout_s=8,
+        )
+
+        self.click_anywhere( # 5) DHCP Server
+            selectors=self._dhcp_toggle_selectors(),
+            desc="menú DHCP Server ZTE",
+            timeout_s=8,
+        )
+
+        self.find_element_anywhere( # 6) Verificar encontrando el template de DHCP Basic Config para asegurarnos de que se cargó la sección
+            selectors=[(By.ID, "template_DHCPBasicCfg")],
+            desc="template DHCPBasicCfg ZTE",
+            timeout_s=10,
+            must_be_displayed=False,
+        )
+
+        self.find_element_anywhere( # 7) Verificar encontrando el input con la IP actual
+            selectors=self._ip_field1_selectors(),
+            desc=f"campo 1 IP ZTE",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+
+    # Método para leer la configuración actual de LAN
+    def read_ip_configuration(self) -> dict:
+        self._go_to_ip_configuration()
+
+        ip_field1 = self.find_element_anywhere(
+            selectors=self._ip_field1_selectors(),
+            desc="campo 1 IP ZTE",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+
+        ip_field2 = self.find_element_anywhere(
+            selectors=self._ip_field2_selectors(),
+            desc="campo 2 IP ZTE",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+
+        ip_field3 = self.find_element_anywhere(
+            selectors=self._ip_field3_selectors(),
+            desc="campo 3 IP ZTE",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+
+        ip_field4 = self.find_element_anywhere(
+            selectors=self._ip_field4_selectors(),
+            desc="campo 4 IP ZTE",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+
+        ip_full = f"{self._get_input_value(ip_field1)}.{self._get_input_value(ip_field2)}.{self._get_input_value(ip_field3)}.{self._get_input_value(ip_field4)}"
+
+        return {
+            "ip": ip_full,
+        }
+
+    # Método para actualizar la IP/LAN del equipo
+    def update_ip_configuration(self, new_ip: str) -> dict:
+        self._go_to_ip_configuration() # 1) Ir a la sección de LAN Settings
+
+        if not new_ip or not str(new_ip).strip():
+            raise RuntimeError("No se recibió nueva IP para ZTE")
+
+        new_ip = str(new_ip).strip()
+
+        ip_field1 = self.find_element_anywhere( # 2a) Buscar campo primer octeto
+            selectors=self._ip_field1_selectors(),
+            desc="campo 1 IP ZTE",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+        ip_field2 = self.find_element_anywhere( # 2b) Buscar campo segundo octeto
+            selectors=self._ip_field2_selectors(),
+            desc="campo 2 IP ZTE",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+        ip_field3 = self.find_element_anywhere( # 2c) Buscar campo tercer octeto
+            selectors=self._ip_field3_selectors(),
+            desc="campo 3 IP ZTE",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+        ip_field4 = self.find_element_anywhere( # 2d) Buscar campo cuarto octeto
+            selectors=self._ip_field4_selectors(),
+            desc="campo 4 IP ZTE",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+
+        ip_full_before = f"{self._get_input_value(ip_field1)}.{self._get_input_value(ip_field2)}.{self._get_input_value(ip_field3)}.{self._get_input_value(ip_field4)}"
+
+        before = { # 3) Guardar valor de IP antes de modificar para devolver al final
+            "ip": ip_full_before,
+        }
+
+        self._set_input_value(ip_field1, new_ip.split('.')[0]) # 4a) Actualizar campo IP con nueva IP
+        self._set_input_value(ip_field2, new_ip.split('.')[1]) # 4b) Actualizar campo IP con nueva IP
+        self._set_input_value(ip_field3, new_ip.split('.')[2]) # 4c) Actualizar campo IP con nueva IP
+        self._set_input_value(ip_field4, new_ip.split('.')[3]) # 4d) Actualizar campo IP con nueva IP
+
+        apply_btn = self.find_element_anywhere( # 5) Buscar botón Apply (espera de 32 segundos en el adapter)
+            selectors=self._apply_ip_button_selectors(),
+            desc="botón Apply IP ZTE",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+        try:
+            apply_btn.click()
+        except Exception:
+            self.driver.execute_script("arguments[0].click();", apply_btn)
+
+        self._maybe_accept_alert(timeout_s=2)
+
+        return { # 6) Devolver valores antes y después del cambio
+            "before": before,
+            "after": {
+                "ip": new_ip,
+            },
+        }
+    
