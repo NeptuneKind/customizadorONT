@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -49,6 +51,13 @@ class FiberhomeAdapter:
         return FiberhomeNavigator(
             driver=ctx.driver,
             base_url=f"http://{ctx.ip}",
+            timeout_s=12,
+        )
+
+    def _build_navigator_for_ip(self, driver, ip: str) -> FiberhomeNavigator:
+        return FiberhomeNavigator(
+            driver=driver,
+            base_url=f"http://{ip}",
             timeout_s=12,
         )
 
@@ -374,9 +383,7 @@ class FiberhomeAdapter:
             })
             return
 
-        new_ip = self._normalize_optional_text(
-            getattr(ip_plan, "new_ip", None)
-        )
+        new_ip = self._normalize_optional_text(getattr(ip_plan, "new_ip", None))
 
         if new_ip is None:
             result.steps.append({
@@ -409,29 +416,101 @@ class FiberhomeAdapter:
             },
         )
 
+        previous_handle = ctx.driver.current_window_handle
+        verification_tab_handle: Optional[str] = None
+        
         try:
-            change_data = navigator.update_ip_configuration(new_ip=new_ip)
-        except Exception as e:
-            raise RuntimeError(f"Error aplicando nueva IP FiberHome: {e}")
+            navigator.update_ip_configuration(new_ip=new_ip)
 
-        self._emit(
-            progress,
-            "IP",
-            "Validando cambio de IP",
-            {"new_ip": new_ip},
-        )
+            self._emit(
+                progress,
+                "IP",
+                "Cambio de IP aplicado; iniciando reboot manual FiberHome",
+                {
+                    "old_ip": old_ip,
+                    "new_ip": new_ip,
+                },
+            )
 
-        try:
-            after_data = navigator.read_ip_configuration()
-        except Exception as e:
-            raise RuntimeError(f"Error leyendo IP FiberHome después de aplicar: {e}")
+            navigator.reboot()
 
-        self._validate_ip_change(
-            old_ip=old_ip,
-            new_ip=new_ip,
-            after_data=after_data,
-            result=result,
-        )
+            self._emit(
+                progress,
+                "IP",
+                "Esperando 50 segundos antes de preparar pestaña de verificación",
+                {
+                    "new_ip": new_ip,
+                    "wait_s": 50,
+                },
+            )
+            time.sleep(50)
+
+            self._emit(
+                progress,
+                "IP",
+                "Abriendo pestaña secundaria de verificación FiberHome",
+                {"new_ip": new_ip},
+            )
+
+            previous_handle = navigator.open_blank_verification_tab()
+            verification_tab_handle = ctx.driver.current_window_handle
+
+            verification_navigator = self._build_navigator_for_ip(ctx.driver, new_ip)
+            verification_navigator.switch_to_window(verification_tab_handle)
+
+            self._emit(
+                progress,
+                "IP",
+                "Esperando 10 segundos adicionales antes del sondeo",
+                {
+                    "new_ip": new_ip,
+                    "wait_s": 10,
+                },
+            )
+            time.sleep(10)
+
+            self._emit(
+                progress,
+                "IP",
+                "Validando acceso en la nueva IP FiberHome",
+                {
+                    "old_ip": old_ip,
+                    "new_ip": new_ip,
+                    "mode": "verification_tab",
+                    "retry_every_s": 5.0,
+                },
+            )
+
+            verification_navigator.wait_until_login_accessible_on_new_ip(
+                new_ip=new_ip,
+                timeout_s=90,
+                retry_every_s=5.0,
+            )
+
+            verification_navigator.login_for_verification(
+                username="root",
+                password="admin",
+            )
+
+            self._emit(
+                progress,
+                "IP",
+                "Cerrando sesión de verificación FiberHome",
+                {"new_ip": new_ip},
+            )
+
+            verification_navigator.logout()
+
+        finally:
+            try:
+                if verification_tab_handle is not None:
+                    verification_navigator = self._build_navigator_for_ip(ctx.driver, new_ip)
+                    verification_navigator.switch_to_window(verification_tab_handle)
+                    verification_navigator.close_current_tab_and_switch_back(previous_handle)
+            except Exception:
+                pass
+
+        result.ip = new_ip
 
         result.steps.append({
             "step": "ip_configuration",
@@ -439,12 +518,10 @@ class FiberhomeAdapter:
                 "before": {
                     "ip": before_data.get("ip", old_ip),
                 },
-                "after": {
-                    "ip": after_data.get("ip", new_ip),
-                },
-                "requested": {
+                "applied": {
                     "ip": new_ip,
                 },
+                "verified_change": True,
             },
         })
 
@@ -485,6 +562,7 @@ class FiberhomeAdapter:
             return result
 
         navigator = self._build_navigator(ctx)
+        should_logout = True
 
         try:
             self._do_login(
@@ -507,6 +585,15 @@ class FiberhomeAdapter:
                 progress=progress,
             )
 
+            ip_plan = getattr(plan, "ip", None)
+            ip_enabled = bool(ip_plan and getattr(ip_plan, "enabled", False))
+            requested_new_ip = self._normalize_optional_text(
+                getattr(ip_plan, "new_ip", None) if ip_plan is not None else None
+            )
+
+            if ip_enabled and requested_new_ip:
+                should_logout = False
+
             self._apply_ip_plan(
                 navigator=navigator,
                 plan=plan,
@@ -523,16 +610,17 @@ class FiberhomeAdapter:
             result.ok = False
     
         finally:
-            try:
-                self._emit(progress, "LOGOUT", "Cerrando sesión FiberHome", None)
-                navigator.logout()
-            except Exception as logout_exc:
-                result.steps.append({
-                    "step": "logout_warning",
-                    "data": {
-                        "warning": f"No fue posible cerrar sesión FiberHome: {logout_exc}"
-                    },
-                })
+            if should_logout:
+                try:
+                    self._emit(progress, "LOGOUT", "Cerrando sesión FiberHome", None)
+                    navigator.logout()
+                except Exception as logout_exc:
+                    result.steps.append({
+                        "step": "logout_warning",
+                        "data": {
+                            "warning": f"No fue posible cerrar sesión FiberHome: {logout_exc}"
+                        },
+                    })
         
         return result
     

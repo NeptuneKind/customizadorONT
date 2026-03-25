@@ -269,13 +269,28 @@ class FiberhomeNavigator:
             selectors=self._reboot_btn_selectors(),
             desc="Reboot button"
         )
+        
+        try:
+            self.driver.execute_script(
+                "arguments[0].scrollIntoView({block:'center', inline:'center'});",
+                reboot_btn,
+            )
+        except Exception:
+            pass
+
         try:
             reboot_btn.click()
         except Exception:
             self.driver.execute_script("arguments[0].click();", reboot_btn)
 
-        self._maybe_accept_alert(timeout_s=0.5)
-        time.sleep(78) # Esperar a que el router se reinicie y vuelva a estar online (aprox 1 min 16 segs; 2 segs de tolerancia)
+        try:
+            alert = WebDriverWait(self.driver, 2).until(EC.alert_is_present())
+            alert.accept()
+            time.sleep(0.2)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Se hizo click en Reboot FiberHome pero no apareció la alerta de confirmación: {exc}"
+            )
 
     # ==========================================================
     # Helpers específicos FiberHome
@@ -413,8 +428,10 @@ class FiberhomeNavigator:
     def _reboot_btn_selectors(self) -> Sequence[Locator]:
         return [
             (By.ID, "Restart_button"),
-            (By.ID, "restart"),
-            (By.XPATH, "//*[contains(normalize-space(.), 'Reboot')]"),
+            (By.CSS_SELECTOR, "input#Restart_button"),
+            (By.CSS_SELECTOR, "input[type='button'][id='Restart_button']"),
+            (By.XPATH, "//input[@id='Restart_button']"),
+            (By.XPATH, "//input[@type='button' and @id='Restart_button']"),
         ]
 
     # Helper para retirar la seguridad de la clase de los campos PreShraredKey y dejarlos visibles para poder leer su valor
@@ -517,6 +534,8 @@ class FiberhomeNavigator:
 
     # Método específico para login de verificación de credenciales web
     def login_for_verification(self, username: str, password: str) -> None:
+        self._ensure_login_page()
+
         username_field = self.find_element_anywhere(
             selectors=[
                 (By.ID, "user_name"),
@@ -572,6 +591,206 @@ class FiberhomeNavigator:
             desc="botón Logout FiberHome después de login de verificación",
             timeout_s=6,
             must_be_displayed=False,
+        )
+
+    # Helper para abrir una nueva pestaña en blanco
+    def open_blank_verification_tab(
+        self,
+        timeout_s: float = 5.0,
+        max_attempts: int = 2,
+    ) -> str:
+        previous_handle = self.driver.current_window_handle
+        last_error: Optional[Exception] = None
+
+        for _ in range(max_attempts):
+            existing_handles = list(self.driver.window_handles)
+
+            try:
+                self.driver.switch_to.new_window("tab")
+            except Exception as exc:
+                last_error = exc
+            else:
+                try:
+                    WebDriverWait(self.driver, timeout_s).until(
+                        lambda d: len(d.window_handles) > len(existing_handles)
+                    )
+                except Exception as exc:
+                    last_error = exc
+
+                try:
+                    new_handles = [h for h in self.driver.window_handles if h not in existing_handles]
+                    if not new_handles:
+                        raise RuntimeError("No se detectó el handle de la nueva pestaña")
+
+                    self.driver.switch_to.window(new_handles[-1])
+                    self._switch_to_default()
+
+                    WebDriverWait(self.driver, timeout_s).until(
+                        lambda d: d.execute_script("return document.readyState") in ("interactive", "complete")
+                    )
+
+                    return previous_handle
+                except Exception as exc:
+                    last_error = exc
+
+            try:
+                self.driver.switch_to.window(previous_handle)
+                self._switch_to_default()
+            except Exception:
+                pass
+
+            try:
+                self.driver.execute_script("window.open('about:blank', '_blank');")
+
+                WebDriverWait(self.driver, timeout_s).until(
+                    lambda d: len(d.window_handles) > len(existing_handles)
+                )
+
+                new_handles = [h for h in self.driver.window_handles if h not in existing_handles]
+                if not new_handles:
+                    raise RuntimeError("No se detectó el handle de la nueva pestaña")
+
+                self.driver.switch_to.window(new_handles[-1])
+                self._switch_to_default()
+
+                WebDriverWait(self.driver, timeout_s).until(
+                    lambda d: d.execute_script("return document.readyState") in ("interactive", "complete")
+                )
+
+                return previous_handle
+
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.25)
+
+            try:
+                self.driver.switch_to.window(previous_handle)
+                self._switch_to_default()
+            except Exception:
+                pass
+
+        raise RuntimeError(f"No fue posible abrir una nueva pestaña de verificación: {last_error}")
+
+    # Helper para cambiar entre pestañas del driver
+    def switch_to_window(self, handle: str) -> None:
+        self.driver.switch_to.window(handle)
+        self._switch_to_default()
+
+    # Helper para cerrar pestaña actual y volver a la pestaña anterior
+    def close_current_tab_and_switch_back(self, previous_handle: str) -> None:
+        self.driver.close()
+        self.driver.switch_to.window(previous_handle)
+        self._switch_to_default()
+
+    # Helper para esperar hasta que la GUI de login quede accesible en la nueva IP después de un cambio de IP
+    def wait_until_login_accessible_on_new_ip(
+        self,
+        new_ip: str,
+        timeout_s: int = 90,
+        retry_every_s: float = 5.0,
+        per_attempt_wait_s: float = 1.5,
+    ) -> None:
+        target_url = f"http://{str(new_ip).strip()}/html/login_inter.html"
+        end_time = time.time() + timeout_s
+        last_error: Optional[Exception] = None
+
+        login_selectors = [
+            (By.ID, "user_name"),
+            (By.NAME, "user_name"),
+            (By.ID, "loginpp"),
+            (By.NAME, "loginpp"),
+            (By.ID, "password"),
+            (By.NAME, "password"),
+            (By.ID, "login_btn"),
+            (By.ID, "login"),
+            (By.ID, "LoginId"),
+        ]
+
+        while time.time() < end_time:
+            attempt_start = time.time()
+
+            try:
+                self._switch_to_default()
+
+                try:
+                    self.driver.execute_script("window.stop();")
+                except Exception:
+                    pass
+
+                try:
+                    self.driver.execute_script(
+                        "window.location.replace(arguments[0]);",
+                        target_url,
+                    )
+                except Exception as exc:
+                    last_error = exc
+
+                time.sleep(per_attempt_wait_s)
+
+                try:
+                    current_url = (self.driver.current_url or "").strip().lower()
+                except Exception:
+                    current_url = ""
+
+                if "login_inter.html" in current_url or str(new_ip).strip().lower() in current_url:
+                    try:
+                        self.find_element_anywhere(
+                            selectors=login_selectors,
+                            desc="pantalla de login FiberHome en nueva IP",
+                            timeout_s=1,
+                            must_be_displayed=False,
+                        )
+                        return
+                    except Exception as exc:
+                        last_error = exc
+                else:
+                    try:
+                        self.find_element_anywhere(
+                            selectors=login_selectors,
+                            desc="pantalla de login FiberHome en nueva IP",
+                            timeout_s=1,
+                            must_be_displayed=False,
+                        )
+                        return
+                    except Exception as exc:
+                        last_error = exc
+
+                try:
+                    self.driver.set_page_load_timeout(2)
+                except Exception:
+                    pass
+
+                try:
+                    self.driver.get(target_url)
+                except Exception as exc:
+                    last_error = exc
+                finally:
+                    try:
+                        self.driver.set_page_load_timeout(30)
+                    except Exception:
+                        pass
+
+                try:
+                    self.find_element_anywhere(
+                        selectors=login_selectors,
+                        desc="pantalla de login FiberHome en nueva IP",
+                        timeout_s=1,
+                        must_be_displayed=False,
+                    )
+                    return
+                except Exception as exc:
+                    last_error = exc
+
+            except Exception as exc:
+                last_error = exc
+
+            elapsed = time.time() - attempt_start
+            remaining = retry_every_s - elapsed
+            if remaining > 0:
+                time.sleep(remaining)
+
+        raise RuntimeError(
+            f"No fue posible acceder al login FiberHome en la nueva IP '{new_ip}': {last_error}"
         )
 
     # Método para asegurar que etamos logueados, esperando a que la sesión esté lista
@@ -1069,11 +1288,9 @@ class FiberhomeNavigator:
         except Exception:
             self.driver.execute_script("arguments[0].click();", apply_btn)
 
-        self._maybe_accept_alert(timeout_s=0.5)
+        self._maybe_accept_alert(timeout_s=2)
 
-        self.reboot() # 4) Hacer reboot para aplicar cambios de IP
-
-        return { # 5) Devolver valores antes y después del cambio
+        return { # 4) Devolver valores antes y después del cambio
             "before": before,
             "after": {
                 "ip": new_ip,

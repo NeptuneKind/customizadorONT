@@ -546,6 +546,7 @@ class HuaweiNavigator:
         self.driver.switch_to.window(previous_handle)
         self._switch_to_default()
 
+    # Helper para esperar hasta que la GUI de login quede accesible en la nueva IP después de un cambio de IP
     def wait_until_login_accessible_on_new_ip(
         self,
         new_ip: str,
