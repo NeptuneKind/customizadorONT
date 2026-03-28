@@ -25,10 +25,10 @@ class PlanToggleCard(SectionCard):
         self._field_widgets: List[object] = [] # Se crea una lista para almacenar los widgets de los campos de entrada relacionados con esta sección, para poder habilitarlos o deshabilitarlos según el estado del interruptor
 
         self.toggle = QCheckBox(switch_text) # Se crea un interruptor (checkbox) con el texto recibido
-        self.toggle.stateChanged.connect(self._handle_toggle) # Se conecta la señal de cambio de estado del interruptor a un método que manejará el evento, y que llamará a la función de callback con el nuevo estado del interruptor
+        self.toggle.toggled.connect(self._handle_toggle) # Se conecta la señal de cambio de estado del interruptor a un método que manejará el evento, y que llamará a la función de callback con el nuevo estado del interruptor
 
         self.fields_container = QWidget() # Se crea un contenedor para los campos de entrada relacionados, que se habilitarán o deshabilitarán según el estado del interruptor
-        self.fields_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.fields_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         
         self.fields_layout = QVBoxLayout(self.fields_container) # Se crea un layout vertical para organizar los campos de entrada dentro del contenedor
         self.fields_layout.setContentsMargins(0, 0, 0, 0)
@@ -43,9 +43,7 @@ class PlanToggleCard(SectionCard):
         self.set_collapsed(True)
 
     # Método que maneja el evento de cambio de estado del interruptor (llama a la función de callback con el nuevo estado)
-    def _handle_toggle(self, state: int) -> None:
-        enabled = state == Qt.Checked
-        self.set_collapsed(not enabled)
+    def _handle_toggle(self, enabled: bool) -> None:
         self._on_toggle(enabled)
 
     # Método para agregar un widget de campo de entrada al contenedor
@@ -66,6 +64,18 @@ class PlanToggleCard(SectionCard):
     # Método setter para colapsar o expandir la sección de campos de entrada dependiendo del estado del interruptor
     def set_collapsed(self, collapsed: bool) -> None:
         self.fields_container.setVisible(not collapsed)
+        self.fields_container.setMaximumHeight(0 if collapsed else 16777215)
+        self.fields_container.updateGeometry()
+        self.body.updateGeometry()
+        self.updateGeometry()
+        self.adjustSize()
+
+        parent = self.parentWidget()
+        while parent is not None:
+            parent.updateGeometry()
+            if parent.layout() is not None:
+                parent.layout().activate()
+            parent = parent.parentWidget()
 
     # Método setter para habilitar o deshabilitar los campos de entrada relacionados
     def set_fields_enabled(self, enabled: bool) -> None:

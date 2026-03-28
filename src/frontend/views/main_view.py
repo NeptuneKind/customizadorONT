@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.frontend.state.app_state import AppState
+from src.frontend.widgets.theme_slider import ThemeSlider
 from src.frontend.widgets.ip_slot_selector import IPSlotSelector
 from src.frontend.widgets.labeled_entry import LabeledEntry
 from src.frontend.widgets.plan_toggle_card import PlanToggleCard
@@ -26,9 +28,15 @@ from src.frontend.widgets.status_stepper import StatusStepper
 # Clase que representa la vista principal de la aplicación. Muestra el formulario de ejecución y el estado actual del proceso
 class MainView(QWidget):
     # El constructor recibe el estado de la aplicación, que se utilizará para cargar y guardar los valores del formulario y el estado del proceso, y opcionalmente un widget padre
-    def __init__(self, app_state: AppState, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        app_state: AppState,
+        on_theme_changed: Callable[[], None] | None = None,
+        parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self.app_state = app_state
+        self.on_theme_changed = on_theme_changed
 
         root = QVBoxLayout(self) # Layout vertical
         root.setContentsMargins(18, 18, 18, 18)
@@ -51,29 +59,39 @@ class MainView(QWidget):
         root.addWidget(content, 1)
         self.refresh_from_state() # Cargar los valores iniciales
 
-    # Método para construir el encabezado de la vista, que incluye el logo, el título y el estado general del proceso
+    # Método para construir el encabezado de la vista, que incluye el logo, el título, el estado general del proceso y el selector de tema
     def _build_header(self) -> QWidget:
         card = SectionCard(
-            title="Customizador ONT",
-            subtitle="Panel principal de ejecucion",
+            title="",
+            subtitle="",
         )
+        card.title_label.setVisible(False)
+        card.subtitle_label.setVisible(False)
+        card.body_layout.setContentsMargins(0, 0, 0, 0)
+        card.body_layout.setSpacing(0)
 
         container = QWidget()
-        layout = QHBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
+        outer_layout = QVBoxLayout(container)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(10)
 
-        self.logo_container = QLabel("LOGO")
-        self.logo_container.setFixedSize(72, 72)
-        self.logo_container.setAlignment(Qt.AlignCenter)
-        self.logo_container.setStyleSheet(
-            "background: #243041; border-radius: 36px; font-weight: 700;"
-        )
+        self.app_title_label = QLabel("Customizador ONT")
+        self.app_title_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        self.app_title_label.setStyleSheet("font-size: 30px; font-weight: 800;")
+        outer_layout.addWidget(self.app_title_label, 0, Qt.AlignTop)
+
+        bottom_row = QWidget()
+        bottom_layout = QHBoxLayout(bottom_row)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setSpacing(12)
+
+        self.logo_container = QLabel()
+        self.logo_container.setVisible(False)
 
         text_col = QWidget()
         text_layout = QVBoxLayout(text_col)
         text_layout.setContentsMargins(0, 0, 0, 0)
-        text_layout.setSpacing(4)
+        text_layout.setSpacing(2)
 
         self.system_label = QLabel("Ejecucion de planes")
         self.system_label.setStyleSheet("font-size: 24px; font-weight: 700;")
@@ -83,27 +101,84 @@ class MainView(QWidget):
         )
         self.help_label.setProperty("muted", True)
 
-        text_layout.addWidget(self.system_label)
-        text_layout.addWidget(self.help_label)
+        text_layout.addWidget(self.system_label, 0, Qt.AlignLeft | Qt.AlignBottom)
+        text_layout.addWidget(self.help_label, 0, Qt.AlignLeft | Qt.AlignBottom)
+
+        right_col = QWidget()
+        right_layout = QVBoxLayout(right_col)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(10)
+        right_layout.setAlignment(Qt.AlignRight | Qt.AlignTop)
+
+        self.theme_title = QLabel("Tema")
+        self.theme_title.setProperty("muted", True)
+        self.theme_title.setAlignment(Qt.AlignRight)
+
+        self.theme_row = QWidget()
+        theme_row_layout = QHBoxLayout(self.theme_row)
+        theme_row_layout.setContentsMargins(0, 0, 0, 0)
+        theme_row_layout.setSpacing(8)
+
+        self.theme_light_label = QLabel("Claro")
+        self.theme_light_label.setProperty("muted", True)
+
+        self.theme_slider = ThemeSlider(
+            checked=self.app_state.theme_mode == "dark",
+            on_toggled=self._on_theme_toggled,
+        )
+
+        self.theme_dark_label = QLabel("Oscuro")
+        self.theme_dark_label.setProperty("muted", True)
+
+        theme_row_layout.addWidget(self.theme_light_label)
+        theme_row_layout.addWidget(self.theme_slider)
+        theme_row_layout.addWidget(self.theme_dark_label)
 
         self.status_badge = QLabel("Listo")
         self.status_badge.setProperty("badge", "pending")
         self.status_badge.setAlignment(Qt.AlignCenter)
+        self.status_badge.setMinimumSize(88, 42)
 
-        layout.addWidget(self.logo_container, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        layout.addWidget(text_col, 1)
-        layout.addWidget(self.status_badge, 0, Qt.AlignRight | Qt.AlignTop)
+        right_layout.addWidget(self.theme_title, 0, Qt.AlignRight | Qt.AlignTop)
+        right_layout.addWidget(self.theme_row, 0, Qt.AlignRight | Qt.AlignTop)
+        right_layout.addWidget(self.status_badge, 0, Qt.AlignRight)
 
-        card.body_layout.addWidget(container) # Agregar el contenedor al cuerpo de la tarjeta del encabezado
+        bottom_layout.addWidget(text_col, 1, Qt.AlignLeft | Qt.AlignBottom)
+        bottom_layout.addWidget(right_col, 0, Qt.AlignRight | Qt.AlignTop)
+
+        outer_layout.addWidget(bottom_row, 1)
+
+        card.body_layout.addWidget(container)
         return card
+    
+    # Handler para el toggle del selector de tema, que actualiza el estado de la aplicación y aplica el nuevo tema
+    def _on_theme_toggled(self, checked: bool) -> None:
+        self.app_state.set_theme_mode("dark" if checked else "light")
+
+        if self.on_theme_changed is not None:
+            self.on_theme_changed()
     
     # Método para construir el panel izquierdo de la vista
     def _build_left_panel(self) -> QWidget:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            """
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollArea > QWidget > QWidget {
+                background: transparent;
+                border: none;
+            }
+            """
+        )
 
         content = QWidget()
+        content.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 4, 0)
         layout.setSpacing(12)
@@ -296,6 +371,9 @@ class MainView(QWidget):
     def refresh_from_state(self) -> None:
         execution = self.app_state.execution
 
+        if hasattr(self, "theme_slider"):
+            self.theme_slider.set_checked(self.app_state.theme_mode == "dark")
+
         self.wifi_card.set_value(execution.wifi.enabled)
         self.web_card.set_value(execution.web_credentials.enabled)
         self.ip_card.set_value(execution.ip_plan.enabled)
@@ -319,24 +397,25 @@ class MainView(QWidget):
 
     # Método setter para establecer la ruta del logo en el encabezado, cargando la imagen desde el archivo y actualizando el widget
     def set_logo_path(self, logo_path: str | Path) -> None:
-        logo_path = Path(logo_path)
-        if not logo_path.exists():
-            self._append_log(f"[UI] Logo no encontrado: {logo_path}")
-            return
+        # logo_path = Path(logo_path)
+        # if not logo_path.exists():
+        #     self._append_log(f"[UI] Logo no encontrado: {logo_path}")
+        #     return
 
-        pixmap = QPixmap(str(logo_path))
-        if pixmap.isNull():
-            self._append_log(f"[UI] No se pudo cargar el logo: {logo_path}")
-            return
+        # pixmap = QPixmap(str(logo_path))
+        # if pixmap.isNull():
+        #     self._append_log(f"[UI] No se pudo cargar el logo: {logo_path}")
+        #     return
 
-        scaled = pixmap.scaled(
-            64,
-            64,
-            Qt.KeepAspectRatioByExpanding,
-            Qt.SmoothTransformation,
-        )
-        self.logo_container.setPixmap(scaled)
-        self.logo_container.setText("")
+        # scaled = pixmap.scaled(
+        #     64,
+        #     64,
+        #     Qt.KeepAspectRatioByExpanding,
+        #     Qt.SmoothTransformation,
+        # )
+        # self.logo_container.setPixmap(scaled)
+        # self.logo_container.setText("")
+        return
 
     # Handler para el botón de inicio. TODO: En el futuro se conectará con la lógica de backend para iniciar el proceso de customización
     def _on_start_clicked(self) -> None:

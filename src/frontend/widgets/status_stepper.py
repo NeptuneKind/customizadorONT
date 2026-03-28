@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget, QSizePolicy
 
 from src.frontend.widgets.section_card import SectionCard
 
@@ -61,41 +61,62 @@ class StatusStepper(SectionCard):
             parent=parent,
         )
 
+        root_layout = self.layout()
+        if root_layout is not None:
+            root_layout.setSpacing(4)
+
+        self.body_layout.setContentsMargins(0, 2, 0, 0)
+        self.body_layout.setSpacing(12)
+
         self.steps: dict[str, StepIndicator] = {} # Se crea un diccionario para almacenar los indicadores de etapa
 
         # Se crea un widget para mostrar información del equipo detectado por el customizador
         self.info_widget = QWidget()
+        self.info_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.info_layout = QGridLayout(self.info_widget)
         self.info_layout.setContentsMargins(0, 0, 0, 0)
         self.info_layout.setHorizontalSpacing(16)
         self.info_layout.setVerticalSpacing(8)
+        self.info_layout.setAlignment(Qt.AlignCenter)
 
-        self.vendor_title = QLabel("Vendor")
-        self.vendor_title.setProperty("muted", True)
-        self.vendor_value = QLabel("--")
+        self.info_layout.setColumnStretch(0, 1)
+        self.info_layout.setColumnStretch(1, 1)
+        self.info_layout.setColumnStretch(2, 1)
 
         self.ip_title = QLabel("IP actual")
         self.ip_title.setProperty("muted", True)
+        self.ip_title.setAlignment(Qt.AlignCenter)
         self.ip_value = QLabel("--")
+        self.ip_value.setAlignment(Qt.AlignCenter)
+
+        self.vendor_title = QLabel("Marca")
+        self.vendor_title.setProperty("muted", True)
+        self.vendor_title.setAlignment(Qt.AlignCenter)
+        self.vendor_value = QLabel("--")
+        self.vendor_value.setAlignment(Qt.AlignCenter)
 
         self.model_title = QLabel("Modelo")
         self.model_title.setProperty("muted", True)
+        self.model_title.setAlignment(Qt.AlignCenter)
         self.model_value = QLabel("--")
+        self.model_value.setAlignment(Qt.AlignCenter)
 
-        self.info_layout.addWidget(self.vendor_title, 0, 0)
         self.info_layout.addWidget(self.ip_title, 0, 1)
+        self.info_layout.addWidget(self.vendor_title, 0, 0)
         self.info_layout.addWidget(self.model_title, 0, 2)
 
-        self.info_layout.addWidget(self.vendor_value, 1, 0)
         self.info_layout.addWidget(self.ip_value, 1, 1)
+        self.info_layout.addWidget(self.vendor_value, 1, 0)
         self.info_layout.addWidget(self.model_value, 1, 2)
 
-        self.body_layout.addWidget(self.info_widget)
+        self.body_layout.addWidget(self.info_widget, 1)
 
         container = QWidget() # Se crea un contenedor para organizar los indicadores de etapa y los conectores entre ellos
+        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         layout = QHBoxLayout(container) # Metemos el contenedor en un layout horizontal
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
+        layout.setAlignment(Qt.AlignCenter)
 
         ordered_steps = [ # Se define una lista con el orden de las etapas del proceso, cada una con una clave y un texto para mostrar en la etiqueta
             ("login", "Login"),
@@ -113,7 +134,7 @@ class StatusStepper(SectionCard):
                 connector = Connector()
                 layout.addWidget(connector, 1)
 
-        self.body_layout.addWidget(container)
+        self.body_layout.addWidget(container, 1)
 
     # Método setter para actualizar el estado de una etapa específica, cambiando el color del indicador correspondiente
     def set_step_status(self, step_key: str, status: str) -> None:
@@ -123,8 +144,8 @@ class StatusStepper(SectionCard):
 
     # Método setter para actualizar la información del equipo detectado por el customizador
     def set_device_info(self, vendor: str = "--", current_ip: str = "--", model: str = "--") -> None:
-        self.vendor_value.setText(vendor or "--")
         self.ip_value.setText(current_ip or "--")
+        self.vendor_value.setText(vendor or "--")
         self.model_value.setText(model or "--")
     
     # Método para reiniciar el estado de todas las etapas a "pending"

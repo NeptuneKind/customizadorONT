@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSettings
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.frontend.state.app_state import AppState
-from src.frontend.theme.colors import APP_STYLE
+from src.frontend.theme.colors import get_app_style
 from src.frontend.views.main_view import MainView
 from src.frontend.views.settings_view import SettingsView
 
@@ -26,6 +26,8 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1200, 760)
 
         self.app_state = AppState() # Se crea una instancia del estado de la aplicación, que se compartirá entre las diferentes vistas
+        self.settings = QSettings("CustomizadorONT", "CustomizadorONT")
+        self._load_persisted_theme()
         self.sidebar_expanded = True # Se establece el estado inicial de la barra lateral como expandida
 
         central = QWidget() # Se crea un widget central para la ventana principal, que contendrá la barra lateral y el área de contenido principal
@@ -77,7 +79,10 @@ class MainWindow(QMainWindow):
         sidebar_layout.addStretch(1)
 
         self.stack = QStackedWidget() # Se crea un widget para alternar entre las diferentes vistas
-        self.main_view = MainView(app_state=self.app_state) # Se crea la vista de ejecución. Se le pasa el estado de la aplicación
+        self.main_view = MainView( # Se crea la vista de ejecución. Se le pasa el estado de la aplicación
+            app_state=self.app_state,
+            on_theme_changed = self._apply_theme_from_state,
+        )
         self.settings_view = SettingsView(app_state=self.app_state) # Se crea la vista de configuración. Se le pasa el estado de la aplicación
 
         # Se agregan las vistas al stack, para poder alternar entre ellas
@@ -89,8 +94,28 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.stack, 1)
 
         # Se aplica el estilo a la ventana principal, y se muestra la vista de ejecución por defecto
-        self.setStyleSheet(APP_STYLE)
+        self._apply_theme_from_state()
         self.show_view("execution")
+
+    # Método para aplicar el tema actual desde el estado de la aplicación, actualizando la hoja de estilos y refrescando el estilo de los botones de navegación
+    def _apply_theme_from_state(self) -> None:
+        self.app_state.set_theme_mode(self.app_state.theme_mode)
+        self.setStyleSheet(get_app_style(self.app_state.theme_mode))
+        self._refresh_button_style(self.execution_button)
+        self._refresh_button_style(self.settings_button)
+
+    # Método para cargar el tema persistido en la configuración de la aplicación, y actualizar el estado de la aplicación con el tema cargado
+    def _load_persisted_theme(self) -> None:
+        stored_theme = str(self.settings.value("ui/theme_mode", "light"))
+        self.app_state.set_theme_mode(stored_theme)
+
+    # Método para aplicar el tema actual desde el estado de la aplicación, actualizando la hoja de estilos y refrescando el estilo de los botones de navegación
+    def _apply_theme_from_state(self) -> None:
+        self.app_state.set_theme_mode(self.app_state.theme_mode)
+        self.settings.setValue("ui/theme_mode", self.app_state.theme_mode)
+        self.setStyleSheet(get_app_style(self.app_state.theme_mode))
+        self._refresh_button_style(self.execution_button)
+        self._refresh_button_style(self.settings_button)
 
     # Método para mostrar una vista específica en el área de contenido principal, y actualizar el estado de los botones de navegación en la barra lateral
     def show_view(self, view_name: str) -> None:

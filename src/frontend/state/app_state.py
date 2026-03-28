@@ -45,7 +45,12 @@ class ExecutionState:
 class AppState:
     execution: ExecutionState = field(default_factory=ExecutionState)
     standard_settings: StandardSettingsState = field(default_factory=StandardSettingsState)
+    theme_mode: str = "light"  # Puede ser "light" o "dark"
 
+    # Método para cambiar el modo de tema de la aplicación
+    def set_theme_mode(self, theme_mode: str) -> None:
+        self.theme_mode = "dark" if theme_mode == "dark" else "light"
+        
     # Método para agregar un mensaje al log de ejecución
     def append_log(self, message: str) -> None:
         self.execution.logs.append(message)
