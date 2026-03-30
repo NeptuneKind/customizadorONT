@@ -60,21 +60,28 @@ class MainWindow(QMainWindow):
         self.sidebar_top_layout.addWidget(self.brand_label, 1)
         self.sidebar_top_layout.addWidget(self.collapse_button, 0)
 
-        self.subtitle_label = QLabel("Frontend base en PySide6")
-        self.subtitle_label.setObjectName("sidebarSubtitle")
-        self.subtitle_label.setWordWrap(True)
+        self.sidebar_logo = QLabel("LOGO")
+        self.sidebar_logo.setFixedSize(92, 92)
+        self.sidebar_logo.setAlignment(Qt.AlignCenter)
+        self.sidebar_logo.setStyleSheet(
+            "background: #243041; border-radius: 46px; font-weight: 700;"
+        )
 
-        self.execution_button = QPushButton("Ejecución") # Botón para mostrar la vista de ejecución, que es la vista principal de la aplicación
-        self.execution_button.clicked.connect(lambda: self.show_view("execution"))
+        self.customization_button = QPushButton("Customización") # Botón para mostrar la vista de ejecución, que es la vista principal de la aplicación
+        self.customization_button.clicked.connect(lambda: self.show_view("execution"))
+
+        self.descustomization_button = QPushButton("Descustomización") # Botón para mostrar la vista de ejecución, que es la vista principal de la aplicación
+        self.descustomization_button.clicked.connect(lambda: self.show_view("dexecution"))
 
         self.settings_button = QPushButton("Configuración") # Botón para mostrar la vista de configuración, que permite al usuario modificar las opciones de la aplicación
         self.settings_button.clicked.connect(lambda: self.show_view("settings"))
 
         # Se agregan los elementos a la barra lateral
         sidebar_layout.addWidget(self.sidebar_top)
-        sidebar_layout.addWidget(self.subtitle_label)
+        sidebar_layout.addWidget(self.sidebar_logo, 0, Qt.AlignHCenter)
         sidebar_layout.addSpacing(10)
-        sidebar_layout.addWidget(self.execution_button)
+        sidebar_layout.addWidget(self.customization_button)
+        sidebar_layout.addWidget(self.descustomization_button)
         sidebar_layout.addWidget(self.settings_button)
         sidebar_layout.addStretch(1)
 
@@ -114,7 +121,8 @@ class MainWindow(QMainWindow):
         self.app_state.set_theme_mode(self.app_state.theme_mode)
         self.settings.setValue("ui/theme_mode", self.app_state.theme_mode)
         self.setStyleSheet(get_app_style(self.app_state.theme_mode))
-        self._refresh_button_style(self.execution_button)
+        self._refresh_button_style(self.customization_button)
+        self._refresh_button_style(self.descustomization_button)
         self._refresh_button_style(self.settings_button)
 
     # Método para mostrar una vista específica en el área de contenido principal, y actualizar el estado de los botones de navegación en la barra lateral
@@ -122,14 +130,26 @@ class MainWindow(QMainWindow):
         if view_name == "execution":
             self.settings_view.sync_to_state()
             self.stack.setCurrentWidget(self.main_view)
-            self.execution_button.setProperty("active", True)
+            self.customization_button.setProperty("active", True)
+            self.descustomization_button.setProperty("active", False)
             self.settings_button.setProperty("active", False)
+            self.main_view.refresh_from_state()
+        elif view_name == "dexecution":
+            self.settings_view.sync_to_state()
+            self.stack.setCurrentWidget(self.main_view)
+            self.customization_button.setProperty("active", False)
+            self.descustomization_button.setProperty("active", True)
+            self.settings_button.setProperty("active", False)
+            self.main_view.refresh_from_state()
         else:
             self.stack.setCurrentWidget(self.settings_view)
-            self.execution_button.setProperty("active", False)
+            self.customization_button.setProperty("active", False)
+            self.descustomization_button.setProperty("active", False)
             self.settings_button.setProperty("active", True)
+            self.main_view.refresh_from_state()
 
-        self._refresh_button_style(self.execution_button)
+        self._refresh_button_style(self.customization_button)
+        self._refresh_button_style(self.descustomization_button)
         self._refresh_button_style(self.settings_button)
 
     # Método para alternar entre la barra lateral expandida y colapsada
@@ -139,15 +159,17 @@ class MainWindow(QMainWindow):
         if self.sidebar_expanded:
             self.sidebar.setFixedWidth(240)
             self.brand_label.setVisible(True)
-            self.subtitle_label.setVisible(True)
-            self.execution_button.setText("Ejecución")
+            self.sidebar_logo.setVisible(True)
+            self.customization_button.setText("Customización")
+            self.descustomization_button.setText("Descustomización")
             self.settings_button.setText("Configuración")
             self.collapse_button.setText("<<")
         else:
             self.sidebar.setFixedWidth(84)
             self.brand_label.setVisible(False)
-            self.subtitle_label.setVisible(False)
-            self.execution_button.setText("E")
+            self.sidebar_logo.setVisible(False)
+            self.customization_button.setText("CC")
+            self.descustomization_button.setText("DC")
             self.settings_button.setText("C")
             self.collapse_button.setText(">>")
 

@@ -38,7 +38,9 @@ class ExecutionState:
             "ip": "pending",
         }
     )
-    logs: List[str] = field(default_factory=list)
+    logs: List[str] = field(default_factory=list)  # legacy
+    plan_logs: List[str] = field(default_factory=list)
+    process_logs: List[str] = field(default_factory=list)
 
 # Dataclass principal para representar el estado global de la aplicación, con campos para el estado de ejecución y el estado de configuración estándar, y métodos para agregar logs y sincronizar las reglas del plan
 @dataclass
@@ -53,7 +55,34 @@ class AppState:
         
     # Método para agregar un mensaje al log de ejecución
     def append_log(self, message: str) -> None:
-        self.execution.logs.append(message)
+        self.execution.process_logs.append(message)
+
+    # Método para agregar un mensaje al log del plan
+    def clear_process_logs(self) -> None:
+        self.execution.process_logs.clear()
+
+    # Método para limpiar todos los logs (tanto de plan como de proceso)
+    def clear_all_logs(self) -> None:
+        self.execution.plan_logs.clear()
+        self.execution.process_logs.clear()
+
+    # Método para reconstruir el log del plan en función de las secciones habilitadas actualmente
+    def rebuild_plan_logs(self) -> None:
+        logs: List[str] = []
+
+        if self.execution.ip_plan.enabled:
+            logs.append("[PLAN] Se habilitó: Plan IP")
+        else:
+            if self.execution.wifi.enabled:
+                logs.append("[PLAN] Se habilitó: Plan WiFi")
+            if self.execution.web_credentials.enabled:
+                logs.append("[PLAN] Se habilitó: Plan credenciales web")
+
+        self.execution.plan_logs = logs
+
+    # Método para obtener todos los logs visibles, combinando los logs del plan y del proceso
+    def get_visible_logs(self) -> List[str]:
+        return [*self.execution.plan_logs, *self.execution.process_logs]
 
     # Método para sincronizar las reglas de habilitación de campos en función de qué secciones del plan están activas
     def sync_plan_rules(self) -> None:

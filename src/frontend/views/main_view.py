@@ -93,11 +93,11 @@ class MainView(QWidget):
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(2)
 
-        self.system_label = QLabel("Ejecucion de planes")
+        self.system_label = QLabel("Ejecución de planes")
         self.system_label.setStyleSheet("font-size: 24px; font-weight: 700;")
 
         self.help_label = QLabel(
-            "El sistema mostrara aqui el flujo general de customizacion."
+            "El sistema mostrará aquí el flujo general de customización."
         )
         self.help_label.setProperty("muted", True)
 
@@ -163,6 +163,7 @@ class MainView(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setObjectName("leftPlansScroll")
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet(
             """
@@ -186,7 +187,7 @@ class MainView(QWidget):
         self.wifi_card = PlanToggleCard(
             title="Plan WiFi",
             subtitle="Compatible con credenciales web. Incompatible con IP.",
-            switch_text="Habilitar customizacion WiFi",
+            switch_text="Habilitar customización de WiFi",
             on_toggle=self._on_wifi_toggle,
         )
         self._build_wifi_fields()
@@ -194,15 +195,15 @@ class MainView(QWidget):
         self.web_card = PlanToggleCard(
             title="Plan credenciales web",
             subtitle="Compatible con WiFi. Incompatible con IP.",
-            switch_text="Habilitar credenciales web",
+            switch_text="Habilitar customización de credenciales web",
             on_toggle=self._on_web_toggle,
         )
         self._build_web_fields()
 
         self.ip_card = PlanToggleCard(
             title="Plan IP",
-            subtitle="Plan exclusivo. Seleccion unica de equipo.",
-            switch_text="Habilitar customizacion IP",
+            subtitle="Plan exclusivo. Selección única de equipo.",
+            switch_text="Habilitar customización de IP",
             on_toggle=self._on_ip_toggle,
         )
         self._build_ip_fields()
@@ -248,7 +249,7 @@ class MainView(QWidget):
         # Card para mostrar el log visual de mensajes del sistema
         self.log_card = SectionCard(
             title="Logs del sistema",
-            subtitle="Mensajes de backend y eventos de ejecucion",
+            subtitle="Mensajes de backend y eventos de ejecución",
         )
 
         self.log_box = QPlainTextEdit()
@@ -264,15 +265,15 @@ class MainView(QWidget):
     # Método para construir los campos específicos del plan WiFi dentro de su tarjeta de sección, y agregarlos al layout correspondiente
     def _build_wifi_fields(self) -> None:
         note = QLabel(
-            "Valores contemplados desde configuracion. La logica real se conecta despues."
+            "Valores contemplados desde configuración."
         )
         note.setProperty("muted", True)
         note.setWordWrap(True)
 
         self.wifi_ssid_24 = LabeledEntry("SSID 2.4 GHz")
-        self.wifi_password_24 = LabeledEntry("Password 2.4 GHz", password=True)
+        self.wifi_password_24 = LabeledEntry("Password 2.4 GHz")
         self.wifi_ssid_5 = LabeledEntry("SSID 5 GHz")
-        self.wifi_password_5 = LabeledEntry("Password 5 GHz", password=True)
+        self.wifi_password_5 = LabeledEntry("Password 5 GHz")
 
         self.wifi_card.fields_layout.addWidget(note)
         self.wifi_card.fields_layout.addWidget(self.wifi_ssid_24)
@@ -287,12 +288,12 @@ class MainView(QWidget):
 
     # Método para construir los campos específicos del plan de credenciales web dentro de su tarjeta de sección, y agregarlos al layout correspondiente
     def _build_web_fields(self) -> None:
-        note = QLabel("Credenciales contempladas desde la vista de configuracion.")
+        note = QLabel("Credenciales contempladas desde la vista de configuración.")
         note.setProperty("muted", True)
         note.setWordWrap(True)
 
-        self.web_old_password = LabeledEntry("Password actual", password=True)
-        self.web_new_password = LabeledEntry("Password nueva", password=True)
+        self.web_old_password = LabeledEntry("Password actual")
+        self.web_new_password = LabeledEntry("Password nueva")
 
         self.web_card.fields_layout.addWidget(note)
         self.web_card.fields_layout.addWidget(self.web_old_password)
@@ -304,7 +305,7 @@ class MainView(QWidget):
     # Método para construir los campos específicos del plan IP dentro de su tarjeta de sección, y agregarlos al layout correspondiente
     def _build_ip_fields(self) -> None:
         note = QLabel(
-            "Selecciona solo un equipo. La IP calculada quedara definida despues."
+            "Selecciona solo un equipo. La IP a aplicar se calculará automáticamente."
         )
         note.setProperty("muted", True)
         note.setWordWrap(True)
@@ -328,14 +329,22 @@ class MainView(QWidget):
         self.app_state.execution.wifi.enabled = enabled
         if enabled:
             self.app_state.execution.ip_plan.enabled = False
+            self._clear_ip_selection_log()
+
         self._apply_plan_rules()
+        self.app_state.rebuild_plan_logs()
+        self.refresh_from_state()
 
     # Handler para el toggle del plan de credenciales web, que actualiza el estado de la aplicación, aplica las reglas de exclusividad entre planes, y agrega un mensaje al log visual
     def _on_web_toggle(self, enabled: bool) -> None:
         self.app_state.execution.web_credentials.enabled = enabled
         if enabled:
             self.app_state.execution.ip_plan.enabled = False
+            self._clear_ip_selection_log()
+
         self._apply_plan_rules()
+        self.app_state.rebuild_plan_logs()
+        self.refresh_from_state()
 
     # Handler para el toggle del plan IP, que actualiza el estado de la aplicación, aplica las reglas de exclusividad entre planes, y agrega un mensaje al log visual
     def _on_ip_toggle(self, enabled: bool) -> None:
@@ -343,7 +352,12 @@ class MainView(QWidget):
         if enabled:
             self.app_state.execution.wifi.enabled = False
             self.app_state.execution.web_credentials.enabled = False
+        else:
+            self._clear_ip_selection_log()
+
         self._apply_plan_rules()
+        self.app_state.rebuild_plan_logs()
+        self.refresh_from_state()
 
     # Handler para la selección de una ranura de ONT en el plan IP, que actualiza el estado de la aplicación con la ranura seleccionada, calcula un valor de IP placeholder basado en la ranura seleccionada, actualiza el campo de IP calculada con ese valor, y agrega un mensaje al log visual
     def _on_ip_slot_selected(self, slot_number: int | None) -> None:
@@ -353,19 +367,19 @@ class MainView(QWidget):
             self.app_state.execution.calculated_ip = ""
             self.calculated_ip_entry.set("")
             self.calculated_ip_entry.set_readonly(True)
-            self._append_log("[UI] Seleccion de equipo IP limpiada")
+            self._clear_ip_selection_log()
             return
+        
+        placeholder_ip = f"192.168.50.{int(slot_number)}" # Si el ID es 01, 02, ..., 09 lo convertimos a 1, 2, ..., 9 para calcular la IP placeholder
 
-        placeholder_ip = f"PENDIENTE_SLOT_{slot_number:02d}"
         self.app_state.execution.calculated_ip = placeholder_ip
         self.calculated_ip_entry.set(placeholder_ip)
         self.calculated_ip_entry.set_readonly(True)
-        self._append_log(f"[UI] Equipo IP seleccionado: ONT {slot_number:02d}")
+        self._set_ip_selection_log(slot_number)
 
     # Método para aplicar las reglas de exclusividad entre planes, sincronizando el estado de la aplicación y refrescando la vista para reflejar los cambios
     def _apply_plan_rules(self) -> None:
         self.app_state.sync_plan_rules()
-        self.refresh_from_state()
 
     # Método para refrescar la vista con los valores actuales del estado de la aplicación
     def refresh_from_state(self) -> None:
@@ -395,6 +409,8 @@ class MainView(QWidget):
         for step_key, status in execution.progress.items():
             self.stepper.set_step_status(step_key, status)
 
+        self._render_logs()
+
     # Método setter para establecer la ruta del logo en el encabezado, cargando la imagen desde el archivo y actualizando el widget
     def set_logo_path(self, logo_path: str | Path) -> None:
         # logo_path = Path(logo_path)
@@ -419,6 +435,7 @@ class MainView(QWidget):
 
     # Handler para el botón de inicio. TODO: En el futuro se conectará con la lógica de backend para iniciar el proceso de customización
     def _on_start_clicked(self) -> None:
+        self.app_state.clear_process_logs()
         self._append_log("[UI] Inicio de customizacion solicitado")
 
     # Handler para el botón de limpiar, que restablece el estado de la aplicación a los valores iniciales
@@ -431,7 +448,10 @@ class MainView(QWidget):
         self.app_state.execution.ip_plan.enabled = False
         self.app_state.execution.selected_slot = None
         self.app_state.execution.calculated_ip = ""
+
         self.app_state.sync_plan_rules()
+        self.app_state.clear_all_logs()
+        self.app_state.rebuild_plan_logs()
 
         self.wifi_ssid_24.clear()
         self.wifi_password_24.clear()
@@ -441,10 +461,44 @@ class MainView(QWidget):
         self.web_new_password.clear()
         self.ip_selector.clear_selection()
         self.stepper.reset()
+
         self._append_log("[UI] Formulario limpiado")
         self.refresh_from_state()
 
     # Método para agregar un mensaje al log visual, y también guardarlo en el estado de la aplicación
     def _append_log(self, message: str) -> None:
         self.app_state.append_log(message)
-        self.log_box.appendPlainText(message)
+        self._render_logs()
+
+    # Método para renderizar el log visual
+    def _render_logs(self) -> None:
+        self.log_box.setPlainText("\n".join(self.app_state.get_visible_logs()))
+
+    # Método para limpiar el mensaje de selección de equipo IP del log visual
+    def _clear_ip_selection_log(self) -> None:
+        prefix = "[UI] Equipo IP seleccionado:"
+        self.app_state.execution.process_logs = [
+            log
+            for log in self.app_state.execution.process_logs
+            if not log.startswith(prefix)
+        ]
+        self._render_logs()
+
+    # Método para establecer un mensaje de selección de equipo IP en el log visual
+    def _set_ip_selection_log(self, slot_number: int) -> None:
+        prefix = "[UI] Equipo IP seleccionado:"
+        self.app_state.execution.process_logs = [
+            log
+            for log in self.app_state.execution.process_logs
+            if not log.startswith(prefix)
+        ]
+        self.app_state.execution.process_logs.append(
+            f"{prefix} ONT {slot_number:02d}"
+        )
+        self._render_logs()
+
+    # Método para limpiar el log visual, eliminando los mensajes del estado de la aplicación y del widget
+    def _replace_logs_with(self, message: str) -> None:
+        self.app_state.execution.logs.clear()
+        self.log_box.clear()
+        self._append_log(message)
