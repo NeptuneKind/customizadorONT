@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from src.frontend.state.app_state import AppState
 from src.frontend.widgets.theme_slider import ThemeSlider
+from src.frontend.widgets.view_header import ViewHeader
 from src.frontend.widgets.ip_slot_selector import IPSlotSelector
 from src.frontend.widgets.labeled_entry import LabeledEntry
 from src.frontend.widgets.plan_toggle_card import PlanToggleCard
@@ -42,7 +43,13 @@ class MainView(QWidget):
         root.setContentsMargins(18, 18, 18, 18)
         root.setSpacing(12)
 
-        self.header = self._build_header() # Encabezado de la vista, con el título, el logo y el estado general del proceso 
+        #self.header = self._build_header() # Encabezado de la vista, con el título, el logo y el estado general del proceso 
+        self.header = ViewHeader(
+            app_state=self.app_state,
+            section_title="Ejecución de planes",
+            section_subtitle="El sistema mostrará aquí el flujo general de customización.",
+            on_theme_changed=self.on_theme_changed,
+        )
         root.addWidget(self.header)
 
         content = QWidget() # Contenedor para el contenido
@@ -59,105 +66,6 @@ class MainView(QWidget):
         root.addWidget(content, 1)
         self.refresh_from_state() # Cargar los valores iniciales
 
-    # Método para construir el encabezado de la vista, que incluye el logo, el título, el estado general del proceso y el selector de tema
-    def _build_header(self) -> QWidget:
-        card = SectionCard(
-            title="",
-            subtitle="",
-        )
-        card.title_label.setVisible(False)
-        card.subtitle_label.setVisible(False)
-        card.body_layout.setContentsMargins(0, 0, 0, 0)
-        card.body_layout.setSpacing(0)
-
-        container = QWidget()
-        outer_layout = QVBoxLayout(container)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.setSpacing(10)
-
-        self.app_title_label = QLabel("Customizador ONT")
-        self.app_title_label.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        self.app_title_label.setStyleSheet("font-size: 30px; font-weight: 800;")
-        outer_layout.addWidget(self.app_title_label, 0, Qt.AlignTop)
-
-        bottom_row = QWidget()
-        bottom_layout = QHBoxLayout(bottom_row)
-        bottom_layout.setContentsMargins(0, 0, 0, 0)
-        bottom_layout.setSpacing(12)
-
-        self.logo_container = QLabel()
-        self.logo_container.setVisible(False)
-
-        text_col = QWidget()
-        text_layout = QVBoxLayout(text_col)
-        text_layout.setContentsMargins(0, 0, 0, 0)
-        text_layout.setSpacing(2)
-
-        self.system_label = QLabel("Ejecución de planes")
-        self.system_label.setStyleSheet("font-size: 24px; font-weight: 700;")
-
-        self.help_label = QLabel(
-            "El sistema mostrará aquí el flujo general de customización."
-        )
-        self.help_label.setProperty("muted", True)
-
-        text_layout.addWidget(self.system_label, 0, Qt.AlignLeft | Qt.AlignBottom)
-        text_layout.addWidget(self.help_label, 0, Qt.AlignLeft | Qt.AlignBottom)
-
-        right_col = QWidget()
-        right_layout = QVBoxLayout(right_col)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(10)
-        right_layout.setAlignment(Qt.AlignRight | Qt.AlignTop)
-
-        self.theme_title = QLabel("Tema")
-        self.theme_title.setProperty("muted", True)
-        self.theme_title.setAlignment(Qt.AlignRight)
-
-        self.theme_row = QWidget()
-        theme_row_layout = QHBoxLayout(self.theme_row)
-        theme_row_layout.setContentsMargins(0, 0, 0, 0)
-        theme_row_layout.setSpacing(8)
-
-        self.theme_light_label = QLabel("Claro")
-        self.theme_light_label.setProperty("muted", True)
-
-        self.theme_slider = ThemeSlider(
-            checked=self.app_state.theme_mode == "dark",
-            on_toggled=self._on_theme_toggled,
-        )
-
-        self.theme_dark_label = QLabel("Oscuro")
-        self.theme_dark_label.setProperty("muted", True)
-
-        theme_row_layout.addWidget(self.theme_light_label)
-        theme_row_layout.addWidget(self.theme_slider)
-        theme_row_layout.addWidget(self.theme_dark_label)
-
-        self.status_badge = QLabel("Listo")
-        self.status_badge.setProperty("badge", "pending")
-        self.status_badge.setAlignment(Qt.AlignCenter)
-        self.status_badge.setMinimumSize(88, 42)
-
-        right_layout.addWidget(self.theme_title, 0, Qt.AlignRight | Qt.AlignTop)
-        right_layout.addWidget(self.theme_row, 0, Qt.AlignRight | Qt.AlignTop)
-        right_layout.addWidget(self.status_badge, 0, Qt.AlignRight)
-
-        bottom_layout.addWidget(text_col, 1, Qt.AlignLeft | Qt.AlignBottom)
-        bottom_layout.addWidget(right_col, 0, Qt.AlignRight | Qt.AlignTop)
-
-        outer_layout.addWidget(bottom_row, 1)
-
-        card.body_layout.addWidget(container)
-        return card
-    
-    # Handler para el toggle del selector de tema, que actualiza el estado de la aplicación y aplica el nuevo tema
-    def _on_theme_toggled(self, checked: bool) -> None:
-        self.app_state.set_theme_mode("dark" if checked else "light")
-
-        if self.on_theme_changed is not None:
-            self.on_theme_changed()
-    
     # Método para construir el panel izquierdo de la vista
     def _build_left_panel(self) -> QWidget:
         scroll = QScrollArea()
@@ -384,6 +292,8 @@ class MainView(QWidget):
     # Método para refrescar la vista con los valores actuales del estado de la aplicación
     def refresh_from_state(self) -> None:
         execution = self.app_state.execution
+        self.web_old_password.set(self.app_state.standard_settings.web_actual_password) # Cargamos el password actual del estado de configuración estándar
+        self.header.refresh_from_state()
 
         if hasattr(self, "theme_slider"):
             self.theme_slider.set_checked(self.app_state.theme_mode == "dark")

@@ -1,88 +1,169 @@
 from __future__ import annotations
 
-from PySide6.QtWidgets import QGridLayout, QLabel, QVBoxLayout, QWidget
+from typing import Callable
+
+from PySide6.QtWidgets import (
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from src.frontend.state.app_state import AppState
 from src.frontend.widgets.labeled_entry import LabeledEntry
 from src.frontend.widgets.section_card import SectionCard
+from src.frontend.widgets.view_header import ViewHeader
 
-# Clase que representa la vista de configuración, que permite al usuario modificar las opciones de la aplicación
+
 class SettingsView(QWidget):
-    # El constructor recibe el estado de la aplicación, que se utilizará para cargar y guardar las opciones de configuración, y opcionalmente un widget padre
-    def __init__(self, app_state: AppState, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        app_state: AppState,
+        on_theme_changed: Callable[[], None] | None = None,
+        on_save_settings: Callable[[], None] | None = None,
+        on_restore_defaults: Callable[[], None] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
-        self.app_state = app_state # Se guarda el estado de la aplicación para poder acceder a él en otros métodos de la clase
+        self.app_state = app_state
+        self.on_theme_changed = on_theme_changed
+        self.on_save_settings = on_save_settings
+        self.on_restore_defaults = on_restore_defaults
 
-        root = QVBoxLayout(self) # Layout vertical
+        root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
-        root.setSpacing(12)
+        root.setSpacing(0)
 
-        self.header = SectionCard( # Se crea una tarjeta de sección para el encabezado de la vista, con un título y un subtítulo que describen la función de esta vista
-            title="Configuracion",
-            subtitle="Vista reservada para la estandarizacion futura de valores.",
+        center_container = QWidget()
+        center_layout = QVBoxLayout(center_container)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(12)
+
+        self.header = ViewHeader(
+            app_state=self.app_state,
+            section_title="Configuración",
+            section_subtitle="El usuario podrá estandarizar valores base de acceso.",
+            on_theme_changed=self.on_theme_changed,
         )
-        root.addWidget(self.header)
 
-        body = QWidget() # Se crea un widget para el cuerpo de la vista, que contendrá las opciones de configuración organizadas en tarjetas de sección
+        body = QWidget()
         body_layout = QGridLayout(body)
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setHorizontalSpacing(12)
         body_layout.setVerticalSpacing(12)
+        body_layout.setColumnStretch(0, 1)
+        body_layout.setColumnStretch(1, 1)
 
-        self.wifi_card = SectionCard( # Se crea una tarjeta de sección para el área de configuración de WiFi
-            title="Estandar WiFi",
-            subtitle="Campos contemplados para SSID y passwords.",
+        self.access_card = SectionCard(
+            title="Acceso base por marca",
+            subtitle="Valores base para flujos de acceso y plan IP por marca.",
         )
-        self.web_card = SectionCard( # Se crea una tarjeta de sección para el área de configuración de credenciales web
-            title="Estandar credenciales web",
-            subtitle="Campos contemplados para la configuracion futura.",
+        self.web_card = SectionCard(
+            title="Estándar credenciales web",
+            subtitle="Valores base para acceso web actual.",
         )
 
-        body_layout.addWidget(self.wifi_card, 0, 0)
+        self.access_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.web_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        body_layout.addWidget(self.access_card, 0, 0)
         body_layout.addWidget(self.web_card, 0, 1)
 
-        self.wifi_ssid_24 = LabeledEntry("SSID 2.4 GHz") # SSID 2.4 GHz
-        self.wifi_password_24 = LabeledEntry("Password 2.4 GHz", password=True) # Password 2.4 GHz
-        self.wifi_ssid_5 = LabeledEntry("SSID 5 GHz") # SSID 5 GHz
-        self.wifi_password_5 = LabeledEntry("Password 5 GHz", password=True) # Password 5 GHz
+        self.brand_ip_huawei_fiber = LabeledEntry("IP base Huawei / FiberHome")
+        self.brand_ip_zte = LabeledEntry("IP base ZTE")
 
-        self.wifi_card.body_layout.addWidget(self.wifi_ssid_24)
-        self.wifi_card.body_layout.addWidget(self.wifi_password_24)
-        self.wifi_card.body_layout.addWidget(self.wifi_ssid_5)
-        self.wifi_card.body_layout.addWidget(self.wifi_password_5)
+        self.access_card.body_layout.addWidget(self.brand_ip_huawei_fiber)
+        self.access_card.body_layout.addWidget(self.brand_ip_zte)
+        self.access_card.body_layout.addStretch(1)
 
-        self.web_old_password = LabeledEntry("Password actual", password=True) # Password actual
-        self.web_new_password = LabeledEntry("Password nueva", password=True) # Password nueva
+        self.web_actual_user = LabeledEntry("Username", readonly=True)
+        # self.web_actual_user.set_readonly(True)
+        self.web_actual_user_note = QLabel("Este valor esta bloqueado por firmware y no puede modificarse.")
+        self.web_actual_user_note.setStyleSheet("color: #D9534F; font-size: 11px; font-weight: 600;")
+        self.web_actual_user_note.setWordWrap(True)
+        self.web_actual_password = LabeledEntry("Password actual")
 
-        self.web_card.body_layout.addWidget(self.web_old_password)
-        self.web_card.body_layout.addWidget(self.web_new_password)
+        self.web_card.body_layout.addWidget(self.web_actual_user)
+        self.web_card.body_layout.addWidget(self.web_actual_user_note)
+        self.web_card.body_layout.addWidget(self.web_actual_password)
+        self.web_card.body_layout.addStretch(1)
 
-        self.note = QLabel( # Nota informativa para el usuario
-            "Estos valores solo quedan contemplados en memoria para la siguiente fase. "
-            "La persistencia y logica de aplicacion se conectaran despues."
+        self.actions_card = SectionCard(
+            title="Acciones",
+            subtitle="Persistencia de configuración base.",
         )
-        self.note.setProperty("muted", True) # Muted para estilo más discreto
-        self.note.setWordWrap(True) # Permitir que el texto se divida en varias líneas si es necesario
 
-        root.addWidget(body, 1)
-        root.addWidget(self.note)
+        actions_row = QWidget()
+        actions_layout = QHBoxLayout(actions_row)
+        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setSpacing(12)
 
-        self.load_from_state() # Cargar los valores de configuración
+        self.restore_defaults_button = QPushButton("Regresar defaults")
+        self.restore_defaults_button.clicked.connect(self._on_restore_defaults_clicked)
 
-    # Método para cargar los valores de configuración
+        self.save_button = QPushButton("Guardar")
+        self.save_button.clicked.connect(self._on_save_clicked)
+
+        actions_layout.addWidget(self.restore_defaults_button, 1)
+        actions_layout.addWidget(self.save_button, 1)
+
+        self.actions_card.body_layout.addWidget(actions_row)
+
+        self.note = QLabel(
+            "Estos valores quedan persistidos como base para la aplicación."
+        )
+        self.note.setProperty("muted", True)
+        self.note.setWordWrap(True)
+
+        center_layout.addStretch(1)
+        center_layout.addWidget(self.header)
+        center_layout.addWidget(body)
+        center_layout.addWidget(self.actions_card)
+        center_layout.addWidget(self.note)
+        center_layout.addStretch(1)
+
+        root.addWidget(center_container, 1)
+
+        self.load_from_state()
+        self._sync_card_heights()
+        self.refresh_from_state()
+
+    def _sync_card_heights(self) -> None:
+        target_height = max(
+            self.access_card.sizeHint().height(),
+            self.web_card.sizeHint().height(),
+        )
+        self.access_card.setMinimumHeight(target_height)
+        self.web_card.setMinimumHeight(target_height)
+
     def load_from_state(self) -> None:
-        self.wifi_ssid_24.set(self.app_state.standard_settings.wifi_ssid_24)
-        self.wifi_password_24.set(self.app_state.standard_settings.wifi_password_24)
-        self.wifi_ssid_5.set(self.app_state.standard_settings.wifi_ssid_5)
-        self.wifi_password_5.set(self.app_state.standard_settings.wifi_password_5)
-        self.web_old_password.set(self.app_state.standard_settings.web_old_password)
-        self.web_new_password.set(self.app_state.standard_settings.web_new_password)
+        self.brand_ip_huawei_fiber.set(self.app_state.standard_settings.brand_ip_huawei_fiber)
+        self.brand_ip_zte.set(self.app_state.standard_settings.brand_ip_zte)
+        self.web_actual_user.set(self.app_state.standard_settings.web_actual_user)
+        self.web_actual_password.set(self.app_state.standard_settings.web_actual_password)
 
-    # Método para sincronizar los valores de configuración ingresados por el usuario
     def sync_to_state(self) -> None:
-        self.app_state.standard_settings.wifi_ssid_24 = self.wifi_ssid_24.get()
-        self.app_state.standard_settings.wifi_password_24 = self.wifi_password_24.get()
-        self.app_state.standard_settings.wifi_ssid_5 = self.wifi_ssid_5.get()
-        self.app_state.standard_settings.wifi_password_5 = self.wifi_password_5.get()
-        self.app_state.standard_settings.web_old_password = self.web_old_password.get()
-        self.app_state.standard_settings.web_new_password = self.web_new_password.get()
+        self.app_state.standard_settings.brand_ip_huawei_fiber = self.brand_ip_huawei_fiber.get()
+        self.app_state.standard_settings.brand_ip_zte = self.brand_ip_zte.get()
+        self.app_state.standard_settings.web_actual_user = self.web_actual_user.get()
+        self.app_state.standard_settings.web_actual_password = self.web_actual_password.get()
+
+    def _on_save_clicked(self) -> None:
+        self.sync_to_state()
+        if self.on_save_settings is not None:
+            self.on_save_settings()
+        self.refresh_from_state()
+
+    def _on_restore_defaults_clicked(self) -> None:
+        if self.on_restore_defaults is not None:
+            self.on_restore_defaults()
+        self.load_from_state()
+        self.refresh_from_state()
+
+    def refresh_from_state(self) -> None:
+        self.load_from_state()
+        self.header.refresh_from_state()
+        self._sync_card_heights()

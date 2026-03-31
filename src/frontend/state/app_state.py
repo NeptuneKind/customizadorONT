@@ -12,12 +12,10 @@ class PlanState:
 # Dataclass para representar el estado de la sección de configuración estándar, con campos para SSID y contraseñas wifi, y contraseñas web
 @dataclass
 class StandardSettingsState:
-    wifi_ssid_24: str = ""
-    wifi_password_24: str = ""
-    wifi_ssid_5: str = ""
-    wifi_password_5: str = ""
-    web_old_password: str = ""
-    web_new_password: str = ""
+    web_actual_user: str = "root"
+    web_actual_password: str = "admin"
+    brand_ip_huawei_fiber: str = "192.168.100.1"
+    brand_ip_zte: str = "192.168.1.1"
 
 # Dataclass para representar el estado de la ejecución, con campos para el proveedor, IP actual, código de modelo, slot seleccionado, IP calculada, estados de cada sección del plan, progreso de cada paso y logs de ejecución
 @dataclass
@@ -48,11 +46,23 @@ class AppState:
     execution: ExecutionState = field(default_factory=ExecutionState)
     standard_settings: StandardSettingsState = field(default_factory=StandardSettingsState)
     theme_mode: str = "light"  # Puede ser "light" o "dark"
+    global_status_text: str = "Listo"
+    global_status_kind: str = "pending"
 
     # Método para cambiar el modo de tema de la aplicación
     def set_theme_mode(self, theme_mode: str) -> None:
         self.theme_mode = "dark" if theme_mode == "dark" else "light"
-        
+
+    # Método para actualizar el estado global de la aplicación
+    def set_global_status(self, text: str, kind: str = "pending") -> None:
+        valid_kinds = {"pending", "running", "success", "error"}
+        self.global_status_text = text or "Listo"
+        self.global_status_kind = kind if kind in valid_kinds else "pending"
+    
+    # Método para reiniciar los valores de configuración estándar a sus valores por defecto
+    def reset_standard_settings_to_defaults(self) -> None:
+        self.standard_settings = StandardSettingsState()
+
     # Método para agregar un mensaje al log de ejecución
     def append_log(self, message: str) -> None:
         self.execution.process_logs.append(message)
