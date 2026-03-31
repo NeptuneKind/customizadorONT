@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from typing import Callable
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -38,6 +40,7 @@ class SettingsView(QWidget):
         root.setSpacing(0)
 
         center_container = QWidget()
+        self.animation_target = center_container
         center_layout = QVBoxLayout(center_container)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(12)
@@ -48,6 +51,13 @@ class SettingsView(QWidget):
             section_subtitle="El usuario podrá estandarizar valores base de acceso.",
             on_theme_changed=self.on_theme_changed,
         )
+
+        scroll_content = QWidget()
+        scroll_content.setObjectName("settingsScrollContent")
+        scroll_content.setStyleSheet("background: transparent;")
+        scroll_content_layout = QVBoxLayout(scroll_content)
+        scroll_content_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_content_layout.setSpacing(12)
 
         body = QWidget()
         body_layout = QGridLayout(body)
@@ -66,8 +76,8 @@ class SettingsView(QWidget):
             subtitle="Valores base para acceso web actual.",
         )
 
-        self.access_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.web_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.access_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.web_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
         body_layout.addWidget(self.access_card, 0, 0)
         body_layout.addWidget(self.web_card, 0, 1)
@@ -80,7 +90,7 @@ class SettingsView(QWidget):
         self.access_card.body_layout.addStretch(1)
 
         self.web_actual_user = LabeledEntry("Username", readonly=True)
-        # self.web_actual_user.set_readonly(True)
+        self.web_actual_user.set_readonly(True)
         self.web_actual_user_note = QLabel("Este valor esta bloqueado por firmware y no puede modificarse.")
         self.web_actual_user_note.setStyleSheet("color: #D9534F; font-size: 11px; font-weight: 600;")
         self.web_actual_user_note.setWordWrap(True)
@@ -118,12 +128,31 @@ class SettingsView(QWidget):
         self.note.setProperty("muted", True)
         self.note.setWordWrap(True)
 
-        center_layout.addStretch(1)
+        scroll_content_layout.addWidget(body)
+        scroll_content_layout.addWidget(self.actions_card)
+        scroll_content_layout.addWidget(self.note)
+        scroll_content_layout.addStretch(1)
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QScrollArea.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setStyleSheet(
+            """
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollArea > QWidget > QWidget {
+                background: transparent;
+                border: none;
+            }
+            """
+        )
+        self.scroll.setWidget(scroll_content)
+
         center_layout.addWidget(self.header)
-        center_layout.addWidget(body)
-        center_layout.addWidget(self.actions_card)
-        center_layout.addWidget(self.note)
-        center_layout.addStretch(1)
+        center_layout.addWidget(self.scroll, 1)
 
         root.addWidget(center_container, 1)
 
@@ -143,6 +172,7 @@ class SettingsView(QWidget):
         self.brand_ip_huawei_fiber.set(self.app_state.standard_settings.brand_ip_huawei_fiber)
         self.brand_ip_zte.set(self.app_state.standard_settings.brand_ip_zte)
         self.web_actual_user.set(self.app_state.standard_settings.web_actual_user)
+        self.web_actual_user.set_readonly(True)
         self.web_actual_password.set(self.app_state.standard_settings.web_actual_password)
 
     def sync_to_state(self) -> None:

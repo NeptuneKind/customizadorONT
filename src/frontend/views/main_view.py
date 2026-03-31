@@ -53,6 +53,7 @@ class MainView(QWidget):
         root.addWidget(self.header)
 
         content = QWidget() # Contenedor para el contenido
+        self.animation_target = content
         content_layout = QHBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(12)
