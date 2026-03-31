@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Callable
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from src.frontend.state.app_state import AppState
 from src.frontend.widgets.section_card import SectionCard
@@ -61,7 +61,8 @@ class ViewHeader(QWidget):
 
         self.help_label = QLabel(section_subtitle)
         self.help_label.setProperty("muted", True)
-        self.help_label.setWordWrap(True)
+        self.help_label.setWordWrap(False)
+        self.help_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         text_layout.addWidget(self.system_label, 0, Qt.AlignLeft | Qt.AlignBottom)
         text_layout.addWidget(self.help_label, 0, Qt.AlignLeft | Qt.AlignBottom)
@@ -73,6 +74,7 @@ class ViewHeader(QWidget):
         right_layout.setAlignment(Qt.AlignRight | Qt.AlignTop)
 
         self.theme_title = QLabel("Tema")
+        self.theme_title.setStyleSheet("font-size: 18px; font-weight: 500;")
         self.theme_title.setProperty("muted", True)
         self.theme_title.setAlignment(Qt.AlignRight)
 

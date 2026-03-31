@@ -197,6 +197,15 @@ QScrollArea#leftPlansScroll QScrollBar:horizontal {{
     height: 0px;
     background: transparent;
 }}
+
+QScrollArea#settingsScroll {{
+    border: none;
+    background: transparent;
+}}
+
+QWidget#settingsScrollViewport {{
+    background: transparent;
+}}
 """
 
 LIGHT_THEME = _STYLE_TEMPLATE.format(
@@ -211,7 +220,7 @@ LIGHT_THEME = _STYLE_TEMPLATE.format(
     button_border="#CFE0E5",
     button_hover="#F1FBFC",
     button_hover_border="#3DC1CC",
-    accent="#1B8D56",
+    accent="#00968F",
     input_bg="#FFFFFF",
     input_border="#DCE6EA",
     input_focus_border="#CADFF7",
@@ -224,14 +233,14 @@ LIGHT_THEME = _STYLE_TEMPLATE.format(
     scroll_handle_hover="#3DC1CC",
     slot_selected_bg="#3DC1CC",
     slot_selected_text="#11353A",
-    slot_selected_border="#1B8D56",
+    slot_selected_border="#00968F",
     slot_selected_bg_hover="#34B7C1",
     slot_unselected_bg="#FFFFFF",
     slot_unselected_border="#B7C8CE",
     slot_unselected_hover="#F3FBFC",
     badge_pending_bg="#6C757D",
-    badge_running_bg="#3DC1CC",
-    badge_success_bg="#1B8D56",
+    badge_running_bg="#317ACF",
+    badge_success_bg="#00968F",
     badge_error_bg="#D9534F",
 )
 
@@ -247,7 +256,7 @@ DARK_THEME = _STYLE_TEMPLATE.format(
     button_border="#2E4B5A",
     button_hover="#294255",
     button_hover_border="#3DC1CC",
-    accent="#1B8D56",
+    accent="#00968F",
     input_bg="#091724",
     input_border="#2B4654",
     input_focus_border="#317ACF",
@@ -266,8 +275,8 @@ DARK_THEME = _STYLE_TEMPLATE.format(
     slot_unselected_border="#34515F",
     slot_unselected_hover="#112432",
     badge_pending_bg="#6C757D",
-    badge_running_bg="#3DC1CC",
-    badge_success_bg="#1B8D56",
+    badge_running_bg="#317ACF",
+    badge_success_bg="#00968F",
     badge_error_bg="#D9534F",
 )
 
