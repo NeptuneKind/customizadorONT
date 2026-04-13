@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/ -v --tb=short)",
+      "Bash(pip install:*)",
+      "Bash(python -m pytest tests/ -m full_locked --tb=short -q)",
+      "Bash(python -m pytest tests/ -m reverse --tb=short -q)",
+      "Bash(python -m pytest tests/ -m normal --tb=short -q)",
+      "Bash(python -m pytest tests/ -m unit --tb=short -q)"
+    ]
+  }
+}
