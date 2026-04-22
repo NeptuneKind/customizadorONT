@@ -29,6 +29,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "selenium": {
         "chromedriver_path": "",
         "chrome_binary_path": ""
+    },
+    "login_telnet_candidates": {
+        "huawei": [{"user": "root", "pass": "adminHW"}, {"user": "root", "pass": "admin"}, {"user": "root", "pass": "admin_123"}],
     }
 }
 

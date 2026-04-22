@@ -28,34 +28,58 @@ import pytest
 pytestmark = pytest.mark.integration
 
 
-def test_01_abrir_socket(socket_abierto, ont_ip):
+def _debug_acumulado(transport, settings):
+    """Imprime estado acumulado: TCP + credencial exitosa + última respuesta del ONT."""
+    peer = transport._sock.getpeername()
+    local = transport._sock.getsockname()
+    print(f"\n[STEP 1] Conexión TCP: {local[0]}:{local[1]} → {peer[0]}:{peer[1]}")
+    if transport._credentials_used:
+        _, _, pair = transport._credentials_used
+        all_creds = settings["login_telnet_candidates"]["huawei"]
+        for i, cred in enumerate(all_creds, 1):
+            marker = " ✓ EXITOSA" if i == pair else ""
+            print(f"[STEP 1]   cred {i}) {cred['user']}/{cred['pass']}{marker}")
+    if transport._last_response is not None:
+        print(f"[STEP 1] Último response: {repr(transport._last_response.strip())}")
+
+
+def test_01_abrir_socket(socket_abierto, settings, ont_ip):
     """Abre la conexión TCP al puerto 23 del ONT."""
-    print(f"\n[STEP 1] Socket TCP abierto a {ont_ip}:23")
     assert socket_abierto._sock is not None, "El socket no quedó conectado"
-    print(f"[STEP 1] socket._sock = {socket_abierto._sock}")
+
+    peer = socket_abierto._sock.getpeername()
+    _debug_acumulado(socket_abierto, settings)
+
+    assert peer[0] == ont_ip, f"IP remota incorrecta: {peer[0]} (esperaba {ont_ip})"
+    assert peer[1] == 23, f"Puerto remoto incorrecto: {peer[1]}"
 
 
-def test_02_login_telnet(socket_logueado):
-    """Autenticación Telnet con dual credentials (root/admin_123 → root/adminHW)."""
-    print(f"\n[STEP 1] Login Telnet completado")
-    print(f"[STEP 1] Credenciales probadas: root/admin_123, root/adminHW")
+def test_02_login_telnet(socket_logueado, settings):
+    """Autenticación Telnet con dual credentials (fallback order)."""
+    _debug_acumulado(socket_logueado, settings)
     assert socket_logueado._sock is not None, "Conexión perdida durante login"
 
 
-def test_03_comando_led(socket_con_led):
+def test_03_comando_led(socket_con_led, settings):
     """Envía 'set led switch on' y verifica que el ONT responde."""
-    print(f"\n[STEP 1] Comando 'set led switch on' enviado")
+    _debug_acumulado(socket_con_led, settings)
+    print(f"[STEP 1] Comando enviado : set led switch on")
+
     assert socket_con_led._sock is not None, "Conexión perdida al enviar comando"
-    print(f"[STEP 1] Conexión sigue activa tras el comando")
+    assert (socket_con_led._last_response or "").strip(), \
+        "El ONT no respondió nada al comando"
 
 
-def test_04_tftp_carga2(socket_con_led, tftp_ip):
-    """
-    Inicia la carga de Carga2.bin via TFTP.
-    Tarda varios minutos — no cancelar.
-    """
-    print(f"\n[STEP 1] Iniciando TFTP: load_pack_by_tftp {tftp_ip} Carga2.bin")
-    print(f"[STEP 1] Timeout: 120s — esperando respuesta 'success!'...")
+def test_04_tftp_carga2(socket_con_led, settings, tftp_ip, bins_dir):
+    """Inicia la carga de Carga2.bin via TFTP. Tarda varios minutos — no cancelar."""
+    _debug_acumulado(socket_con_led, settings)
+
+    bin_path = bins_dir / "Carga2.bin"
+    assert bin_path.exists(), f"Binario no encontrado: {bin_path}"
+    print(f"[STEP 1] Binario      : {bin_path} ({bin_path.stat().st_size:,} bytes)")
+    print(f"[STEP 1] Servidor TFTP: {tftp_ip}")
+    print(f"[STEP 1] Comando      : load_pack_by_tftp {tftp_ip} Carga2.bin")
+    print(f"[STEP 1] Timeout      : 120s — esperando 'success!'...")
 
     response = socket_con_led.load_pack_by_tftp(
         server_ip=tftp_ip,
@@ -63,27 +87,29 @@ def test_04_tftp_carga2(socket_con_led, tftp_ip):
         expect="success!",
     )
 
-    print(f"[STEP 1] Respuesta recibida: {response[:300]}")
+    print(f"[STEP 1] Respuesta ONT: {repr(response.strip()[:300])}")
     assert "success!" in response, \
         f"TFTP no retornó 'success!'. Respuesta: {response[:300]}"
     print(f"[STEP 1] Carga2.bin cargado exitosamente")
 
 
-def test_05_reset(socket_con_led):
-    """Envía el comando de reset al ONT. El socket puede cerrarse en cualquier momento."""
-    print(f"\n[STEP 1] Enviando 'send reset'...")
+def test_05_reset(socket_con_led, settings):
+    """Envía 'send reset'. El socket puede cerrarse en cualquier momento."""
+    _debug_acumulado(socket_con_led, settings)
+    print(f"[STEP 1] Enviando 'send reset'...")
     socket_con_led.send_reset()
-    print(f"[STEP 1] Reset enviado (el dispositivo comenzará a reiniciarse)")
+    print(f"[STEP 1] Reset enviado — el dispositivo comenzará a reiniciarse")
 
 
-def test_06_esperar_reboot(socket_con_led, ont_ip):
+def test_06_esperar_reboot(socket_con_led, settings, ont_ip):
     """
     Espera a que el dispositivo se caiga y vuelva a responder.
     Fase DOWN: hasta 15s
     Fase UP:   hasta 90s
     """
-    print(f"\n[STEP 1] Esperando que {ont_ip} caiga (fase DOWN, max 15s)...")
-    print(f"[STEP 1] Luego esperando que vuelva (fase UP, max 90s)...")
+    _debug_acumulado(socket_con_led, settings)
+    print(f"[STEP 1] Fase DOWN: esperando que {ont_ip} caiga (max 15s)...")
+    print(f"[STEP 1] Fase UP  : esperando que {ont_ip} vuelva (max 90s)...")
 
     socket_con_led.wait_for_reboot(down_timeout_s=15, up_timeout_s=90)
 

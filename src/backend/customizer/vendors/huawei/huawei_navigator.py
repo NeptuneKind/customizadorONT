@@ -158,6 +158,33 @@ class HuaweiNavigator:
 
         return el
 
+    def _safe_click_checkbox(
+        self,
+        selectors: Sequence[Locator],
+        desc: str,
+        timeout_s: int = 6,
+        retries: int = 3,
+    ) -> None:
+        """Find a checkbox and click it if unchecked. Retries on StaleElementReferenceException."""
+        for attempt in range(retries):
+            try:
+                cb = self.find_element_anywhere(
+                    selectors=selectors,
+                    desc=desc,
+                    timeout_s=timeout_s,
+                    must_be_displayed=False,
+                )
+                if not cb.is_selected():
+                    try:
+                        cb.click()
+                    except Exception:
+                        self.driver.execute_script("arguments[0].click();", cb)
+                return
+            except StaleElementReferenceException:
+                if attempt == retries - 1:
+                    raise
+                time.sleep(0.3)
+
     def _set_input_value(self, el: WebElement, value: str) -> None:
         desired = "" if value is None else str(value)
 
@@ -1534,42 +1561,23 @@ class HuaweiNavigator:
             timeout_s=8,
         )
 
-        time.sleep(0.5)
+        time.sleep(1.0)
 
-        enable_cb = self.find_element_anywhere( # 2) Activar checkbox Enable
+        self._safe_click_checkbox( # 2) Activar checkbox Enable
             selectors=self._wan_access_enable_checkbox_selectors(),
             desc="checkbox Enable WAN Access Control Huawei",
-            timeout_s=6,
-            must_be_displayed=False,
         )
-        if not enable_cb.is_selected():
-            try:
-                enable_cb.click()
-            except Exception:
-                self.driver.execute_script("arguments[0].click();", enable_cb)
 
-        protocol_cb = self.find_element_anywhere( # 3) Activar checkbox del protocolo indicado
+        self._safe_click_checkbox( # 3) Activar checkbox del protocolo indicado
             selectors=self._wan_access_protocol_checkbox_selectors(protocol),
             desc=f"checkbox protocolo {protocol.upper()} WAN Access Control Huawei",
-            timeout_s=6,
-            must_be_displayed=False,
         )
-        if not protocol_cb.is_selected():
-            try:
-                protocol_cb.click()
-            except Exception:
-                self.driver.execute_script("arguments[0].click();", protocol_cb)
 
-        apply_btn = self.find_element_anywhere( # 4) Click Apply y esperar 1 seg para aplicar
+        self.click_anywhere( # 4) Click Apply y esperar para que aplique
             selectors=self._wan_access_apply_button_selectors(),
             desc="botón Apply WAN Access Control Huawei",
             timeout_s=6,
-            must_be_displayed=False,
         )
-        try:
-            apply_btn.click()
-        except Exception:
-            self.driver.execute_script("arguments[0].click();", apply_btn)
 
         time.sleep(2.0)
 

@@ -53,6 +53,8 @@ class HuaweiFullLockedTransport:
         self.timeout_s = timeout_s
         self._sock: Optional[socket.socket] = None
         self._buf = b""
+        self._credentials_used = None  # (username, password, pair_number)
+        self._last_response: Optional[str] = None  # last send_command response
 
     # =================================================================
     # Connection
@@ -85,26 +87,29 @@ class HuaweiFullLockedTransport:
         """
         Dual-credential login. Tries pair 1 first; falls back to pair 2.
         Raises RuntimeError if both pairs fail.
+        Tracks which credentials were used in self._credentials_used.
         """
         try:
             self._do_login(credentials.username_1, credentials.password_1)
+            self._credentials_used = (credentials.username_1, credentials.password_1, 1)
             log.debug("Logged in with credential pair 1 (%s)", credentials.username_1)
             return
         except RuntimeError as exc:
             log.debug("Credential pair 1 failed: %s — trying pair 2", exc)
 
         self._do_login(credentials.username_2, credentials.password_2)
+        self._credentials_used = (credentials.username_2, credentials.password_2, 2)
         log.debug("Logged in with credential pair 2 (%s)", credentials.username_2)
 
     def _do_login(self, username: str, password: str) -> None:
         """Single login attempt. Raises RuntimeError on auth failure."""
-        self._read_until("login:", timeout_s=10.0)
+        self._read_until_any(["login:", "Login:"], timeout_s=10.0)
         self._write(username + "\n")
-        self._read_until("Password:", timeout_s=5.0)
+        self._read_until_any(["Password:", "password:"], timeout_s=5.0)
         self._write(password + "\n")
         response = self._read_until_any(
-            ["#", "$", ">", "incorrect", "denied", "failed"],
-            timeout_s=5.0,
+            ["#", "$", ">", "WAP", "incorrect", "denied", "failed", "wrong"],
+            timeout_s=10.0,
         )
         lower = response.lower()
         if "incorrect" in lower or "denied" in lower or "failed" in lower:
@@ -130,9 +135,12 @@ class HuaweiFullLockedTransport:
         log.debug("send_command: %r", command)
         self._write(command + "\n")
         if expect:
-            return self._read_until(expect, timeout_s=wait_s + 10.0)
-        time.sleep(wait_s)
-        return self._read_available()
+            response = self._read_until(expect, timeout_s=wait_s + 10.0)
+        else:
+            time.sleep(wait_s)
+            response = self._read_available()
+        self._last_response = response
+        return response
 
     # =================================================================
     # TFTP
@@ -143,18 +151,76 @@ class HuaweiFullLockedTransport:
         server_ip: str,
         remote_file: str,
         expect: str,
+        timeout_s: float = 120.0,
+        progress_interval_s: float = 10.0,
     ) -> str:
         """
         Instruct the ONT to pull `remote_file` from a TFTP server at
-        `server_ip`.  Blocks until `expect` string appears in the response
-        (up to 120 s — firmware transfers are slow).
+        `server_ip`.  Blocks until `expect` string appears in the response.
 
+        Prints progress every `progress_interval_s` seconds.
+        Raises RuntimeError immediately if the ONT reports an error.
         Returns the full response text.
         """
-        cmd = f"load_pack_by_tftp {server_ip} {remote_file}"
-        log.debug("TFTP: %s (expect=%r)", cmd, expect)
+        _TFTP_ERROR_MARKERS = [
+            "failed", "timed out", "refused", "no such file", "cannot", "unreachable",
+            "error::", "not existed", "not exist", "invalid command",
+        ]
+        cmd = f"load pack by tftp svrip {server_ip} remotefile {remote_file}"
+        log.debug("TFTP: %s (expect=%r, timeout=%ss)", cmd, expect, timeout_s)
         self._write(cmd + "\n")
-        return self._read_until(expect, timeout_s=120.0)
+
+        deadline = time.time() + timeout_s
+        last_progress = time.time()
+
+        while time.time() < deadline:
+            remaining = max(0.01, deadline - time.time())
+            self._sock.settimeout(min(remaining, 0.5))
+            try:
+                chunk = self._sock.recv(4096)
+                if not chunk:
+                    break
+                self._buf += chunk
+            except socket.timeout:
+                pass
+
+            self._buf, replies = _process_iac(self._buf)
+            if replies and self._sock:
+                try:
+                    self._sock.sendall(replies)
+                except Exception:
+                    pass
+
+            text = self._buf.decode("ascii", errors="replace")
+
+            if expect in text:
+                self._buf = b""
+                self._last_response = text
+                return text
+
+            lower = text.lower()
+            for err in _TFTP_ERROR_MARKERS:
+                if err in lower:
+                    self._buf = b""
+                    self._last_response = text
+                    raise RuntimeError(
+                        f"TFTP falló — ONT respondió: {repr(text.strip()[:300])}"
+                    )
+
+            now = time.time()
+            if now - last_progress >= progress_interval_s:
+                elapsed = now - (deadline - timeout_s)
+                partial = text.strip()[-200:] if text.strip() else "(sin respuesta aún)"
+                print(f"[TRANSPORT] TFTP {elapsed:.0f}s/{timeout_s:.0f}s — ONT: {repr(partial)}")
+                log.debug("TFTP progress %.0fs: %r", elapsed, partial)
+                last_progress = now
+
+        last_text = self._buf.decode("ascii", errors="replace")
+        self._last_response = last_text
+        raise TimeoutError(
+            f"TFTP: '{expect}' no recibido en {timeout_s}s (host={self.host})\n"
+            f"Último texto recibido: {repr(last_text.strip()[:300])}"
+        )
 
     # =================================================================
     # Reset / reboot

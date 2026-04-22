@@ -34,6 +34,11 @@ def pytest_addoption(parser):
 
 
 @pytest.fixture(scope="session")
+def bins_dir():
+    return PROJECT_ROOT / "BINS"
+
+
+@pytest.fixture(scope="session")
 def ont_ip(request):
     return request.config.getoption("--ip")
 
@@ -148,10 +153,13 @@ def gui_telnet_habilitado(gui_en_wan):
 # ──────────────────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
-def telnet_creds_step1():
+def telnet_creds_step1(settings):
+    creds_list = settings["login_telnet_candidates"]["huawei"]
     return HuaweiTelnetCredentials(
-        username_1="root", password_1="admin_123",
-        username_2="root", password_2="adminHW",
+        username_1=creds_list[0]["user"],
+        password_1=creds_list[0]["pass"],
+        username_2=creds_list[1]["user"],
+        password_2=creds_list[1]["pass"],
     )
 
 
@@ -162,6 +170,7 @@ def socket_abierto(ont_ip):
     transport.connect()
     yield transport
     transport.close()
+    print(f"\n[STEP 1] Socket TCP cerrado (teardown fixture)")
 
 
 @pytest.fixture(scope="module")
