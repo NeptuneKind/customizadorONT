@@ -49,11 +49,12 @@ def huawei_navigator_mock():
     nav.switch_to_window.return_value = None
     nav.close_current_tab_and_switch_back.return_value = None
     nav._open_root.return_value = None
-    # Step 0 methods (WAN Access Control)
+    # Step 0 methods (Device Access Control + WAN Access Control)
+    nav.enable_lan_telnet.return_value = None
     nav.navigate_to_wan_access_control.return_value = None
     nav.create_wan_access_rule.return_value = None
     nav.verify_wan_access_rule_exists.return_value = True
-    nav.enable_telnet_and_tftp.return_value = None
+    nav.enable_telnet.return_value = None
     return nav
 
 

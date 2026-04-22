@@ -1313,4 +1313,301 @@ class HuaweiNavigator:
                 "ip": new_ip,
             },
         }
-    
+
+    # ==========================================================
+    # Device Access Control (Step 0 - Full Locked)
+    # ==========================================================
+
+    # Helper para obtener los selectores del submenú Security (compartido con WAN Access Control)
+    def _security_menu_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "name_securityconfig"),
+            (By.XPATH, "//div[@id='name_securityconfig']"),
+            (By.XPATH, "//div[contains(normalize-space(.), 'Security') and contains(@class, 'SecondMenuTitle')]"),
+        ]
+
+    # Helper para obtener los selectores del ítem Device Access Control en el sidebar
+    def _device_access_control_menu_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "ontaccess"),
+            (By.XPATH, "//div[@id='ontaccess']"),
+            (By.XPATH, "//div[contains(normalize-space(.), 'Device Access Control') and contains(@class, 'ThirdMenuTitle')]"),
+        ]
+
+    # Helper para el checkbox "Enable LAN-side PC to access via Telnet"
+    def _device_access_lan_telnet_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "telnetlan"),
+            (By.XPATH, "//input[@id='telnetlan']"),
+            (By.XPATH, "//input[@name='telnetlan']"),
+        ]
+
+    # Helper para el botón Apply de Device Access Control
+    def _device_access_apply_button_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "bttnApply"),
+            (By.XPATH, "//button[@id='bttnApply']"),
+        ]
+
+    def _go_to_device_access_control(self) -> None:
+        self._ensure_main_page()
+
+        self.click_anywhere(
+            selectors=self._advanced_menu_selectors(),
+            desc="menú Advanced Huawei",
+            timeout_s=8,
+        )
+        time.sleep(0.5)
+
+        self.click_anywhere(
+            selectors=self._security_menu_selectors(),
+            desc="submenú Security Huawei",
+            timeout_s=8,
+        )
+        time.sleep(0.5)
+
+        self.click_anywhere(
+            selectors=self._device_access_control_menu_selectors(),
+            desc="Device Access Control Huawei",
+            timeout_s=8,
+        )
+        time.sleep(1.5)
+
+        self.find_element_anywhere(
+            selectors=self._device_access_lan_telnet_selectors(),
+            desc="checkbox LAN Telnet en Device Access Control",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+
+    def enable_lan_telnet(self) -> None:
+        self._go_to_device_access_control()
+
+        cb = self.find_element_anywhere(
+            selectors=self._device_access_lan_telnet_selectors(),
+            desc="checkbox LAN Telnet en Device Access Control",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+        if not cb.is_selected():
+            try:
+                cb.click()
+            except Exception:
+                self.driver.execute_script("arguments[0].click();", cb)
+
+        self._maybe_accept_alert(timeout_s=3)
+        time.sleep(0.5)
+
+        apply_btn = self.find_element_anywhere(
+            selectors=self._device_access_apply_button_selectors(),
+            desc="botón Apply Device Access Control Huawei",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+        try:
+            apply_btn.click()
+        except Exception:
+            self.driver.execute_script("arguments[0].click();", apply_btn)
+
+        time.sleep(1.5)
+
+    # ==========================================================
+    # WAN Access Control (Step 0 - Full Locked)
+    # ==========================================================
+
+    # Helper para obtener los selectores del submenú WAN Access Control
+    def _wan_access_control_menu_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "wanacl"),
+            (By.XPATH, "//div[@id='wanacl']"),
+            (By.XPATH, "//div[contains(normalize-space(.), 'WAN Access Control') and contains(@class, 'ThirdMenuTitle')]"),
+        ]
+
+    # Helper para obtener los selectores del botón New en la tabla WAN Access Control
+    def _wan_access_new_button_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "Newbutton"),
+            (By.XPATH, "//input[@id='Newbutton']"),
+            (By.XPATH, "//input[@type='button' and @value='New']"),
+        ]
+
+    # Helper para obtener los selectores del checkbox Enable en el formulario de nueva regla
+    def _wan_access_enable_checkbox_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "WanAclEnable"),
+            (By.XPATH, "//input[@id='WanAclEnable']"),
+            (By.XPATH, "//input[@name='WanAclEnable']"),
+        ]
+
+    # Helper para obtener los selectores del checkbox de un protocolo específico (TELNET, TFTP, SSH, HTTP, FTP, ICMP)
+    def _wan_access_protocol_checkbox_selectors(self, protocol: str) -> Sequence[Locator]:
+        p = protocol.upper()
+        return [
+            (By.ID, f"cb_{p}"),
+            (By.XPATH, f"//input[@id='cb_{p}']"),
+            (By.XPATH, f"//input[@name='cb_{p}']"),
+        ]
+
+    # Helper para obtener los selectores del botón Apply en el formulario de nueva regla
+    def _wan_access_apply_button_selectors(self) -> Sequence[Locator]:
+        return [
+            (By.ID, "ButtonApply"),
+            (By.XPATH, "//button[@id='ButtonApply']"),
+            (By.XPATH, "//button[normalize-space(.)='Apply']"),
+        ]
+
+    # Método privado para navegar a la página de WAN Access Control
+    def _go_to_wan_access_control(self) -> None:
+        # Si ya está cargada la tabla con el botón New, no navegar otra vez
+        try:
+            self.find_element_anywhere(
+                selectors=self._wan_access_new_button_selectors(),
+                desc="botón New de WAN Access Control ya cargado",
+                timeout_s=1,
+                must_be_displayed=False,
+            )
+            return
+        except Exception:
+            pass
+
+        # Si Security ya está expandido (venimos de Device Access Control),
+        # intentar clicar WAN Access Control directamente sin recargar la página.
+        try:
+            self.click_anywhere(
+                selectors=self._wan_access_control_menu_selectors(),
+                desc="WAN Access Control desde Security ya expandido",
+                timeout_s=2,
+            )
+            time.sleep(2.0)
+            self.find_element_anywhere(
+                selectors=self._wan_access_new_button_selectors(),
+                desc="tabla WAN Access Control cargada (shortcut)",
+                timeout_s=6,
+                must_be_displayed=False,
+            )
+            return
+        except Exception:
+            pass
+
+        self._ensure_main_page()
+
+        self.click_anywhere( # 1) Menú Advanced
+            selectors=self._advanced_menu_selectors(),
+            desc="menú Advanced Huawei",
+            timeout_s=8,
+        )
+        time.sleep(0.5)
+
+        self.click_anywhere( # 2) Submenú Security
+            selectors=self._security_menu_selectors(),
+            desc="submenú Security Huawei",
+            timeout_s=8,
+        )
+        time.sleep(0.5)
+
+        self.click_anywhere( # 3) Submenú WAN Access Control
+            selectors=self._wan_access_control_menu_selectors(),
+            desc="submenú WAN Access Control Huawei",
+            timeout_s=8,
+        )
+
+        time.sleep(1.0)
+
+        self.find_element_anywhere( # 4) Verificar que cargó la tabla con el botón New
+            selectors=self._wan_access_new_button_selectors(),
+            desc="tabla WAN Access Control cargada",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+
+    # Método público: navega a WAN Access Control (para uso desde el adapter/flow)
+    def navigate_to_wan_access_control(self) -> None:
+        self._go_to_wan_access_control()
+
+    # Método para crear una nueva regla en WAN Access Control habilitando un protocolo
+    def create_wan_access_rule(self, protocol: str) -> None:
+        self._go_to_wan_access_control()
+
+        self.click_anywhere( # 1) Click en New para abrir el formulario de nueva regla
+            selectors=self._wan_access_new_button_selectors(),
+            desc="botón New WAN Access Control Huawei",
+            timeout_s=8,
+        )
+
+        time.sleep(0.5)
+
+        enable_cb = self.find_element_anywhere( # 2) Activar checkbox Enable
+            selectors=self._wan_access_enable_checkbox_selectors(),
+            desc="checkbox Enable WAN Access Control Huawei",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+        if not enable_cb.is_selected():
+            try:
+                enable_cb.click()
+            except Exception:
+                self.driver.execute_script("arguments[0].click();", enable_cb)
+
+        protocol_cb = self.find_element_anywhere( # 3) Activar checkbox del protocolo indicado
+            selectors=self._wan_access_protocol_checkbox_selectors(protocol),
+            desc=f"checkbox protocolo {protocol.upper()} WAN Access Control Huawei",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+        if not protocol_cb.is_selected():
+            try:
+                protocol_cb.click()
+            except Exception:
+                self.driver.execute_script("arguments[0].click();", protocol_cb)
+
+        apply_btn = self.find_element_anywhere( # 4) Click Apply y esperar 1 seg para aplicar
+            selectors=self._wan_access_apply_button_selectors(),
+            desc="botón Apply WAN Access Control Huawei",
+            timeout_s=6,
+            must_be_displayed=False,
+        )
+        try:
+            apply_btn.click()
+        except Exception:
+            self.driver.execute_script("arguments[0].click();", apply_btn)
+
+        time.sleep(2.0)
+
+    # Método para verificar si existe una regla para un protocolo en la tabla
+    def verify_wan_access_rule_exists(self, protocol: str) -> bool:
+        self._go_to_wan_access_control()
+        try:
+            p = protocol.upper()
+            self.find_element_anywhere(
+                selectors=[
+                    (By.XPATH, f"//table//td[contains(normalize-space(.),'{p}')]"),
+                    (By.XPATH, f"//*[contains(normalize-space(.),'{p}')]"),
+                ],
+                desc=f"regla {p} en tabla WAN Access Control Huawei",
+                timeout_s=5,
+                must_be_displayed=False,
+            )
+            return True
+        except Exception:
+            return False
+
+    # Método para leer las reglas existentes en la tabla WAN Access Control
+    def read_wan_access_control_rules(self) -> list:
+        self._go_to_wan_access_control()
+        rules = []
+        try:
+            rows = self.driver.find_elements(By.XPATH, "//table//tr")
+            for row in rows:
+                cells = row.find_elements(By.TAG_NAME, "td")
+                if len(cells) >= 2:
+                    row_text = " ".join(c.text.strip() for c in cells if c.text.strip())
+                    if row_text:
+                        rules.append(row_text)
+        except Exception:
+            pass
+        return rules
+
+    # Método wrapper Step 0: habilita Telnet en WAN Access Control.
+    # TFTP no requiere regla porque el ONT actúa como cliente TFTP (conexión saliente).
+    def enable_telnet(self) -> None:
+        self.create_wan_access_rule("TELNET")

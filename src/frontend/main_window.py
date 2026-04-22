@@ -31,8 +31,8 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Customizador ONT")
-        self.resize(1440, 900)
         self.setMinimumSize(1200, 760)
+        self.showMaximized()
 
         self.app_state = AppState() # Se crea una instancia del estado de la aplicación, que se compartirá entre las diferentes vistas
         self.settings = QSettings("CustomizadorONT", "CustomizadorONT")
@@ -78,13 +78,12 @@ class MainWindow(QMainWindow):
         #     "background: #243041; border-radius: 46px; font-weight: 700;"
         # )
         self.sidebar_logo = QLabel()
+        self.sidebar_logo.setObjectName("sidebarLogo")
         self.sidebar_logo.setFixedSize(92, 92)
         self.sidebar_logo.setAlignment(Qt.AlignCenter)
-        self.sidebar_logo.setStyleSheet(
-            "background: #243041; border-radius: 46px;"
-        )
 
         logo_path = Path(__file__).resolve().parent / "assets" / "logo_RAM_ONT.png"
+        #logo_path = Path(__file__).resolve().parent / "assets" / "logoRAM_backgroundless.png"
         if logo_path.exists():
             pixmap = QPixmap(str(logo_path))
             if not pixmap.isNull():
@@ -184,6 +183,10 @@ class MainWindow(QMainWindow):
         self.app_state.set_theme_mode(self.app_state.theme_mode)
         self.settings.setValue("ui/theme_mode", self.app_state.theme_mode)
         self.setStyleSheet(get_app_style(self.app_state.theme_mode))
+        if self.app_state.theme_mode == "dark":
+            self.sidebar_logo.setStyleSheet("background: #243041; border-radius: 46px;")
+        else:
+            self.sidebar_logo.setStyleSheet("background: #C8E6EC; border-radius: 46px;")
         self._refresh_button_style(self.customization_button)
         self._refresh_button_style(self.descustomization_button)
         self._refresh_button_style(self.settings_button)
