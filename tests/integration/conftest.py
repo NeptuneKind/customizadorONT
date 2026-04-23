@@ -185,3 +185,102 @@ def socket_con_led(socket_logueado):
     """Post-login con 'set led switch on' enviado."""
     socket_logueado.send_command("set led switch on")
     return socket_logueado
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Helper compartido para tests reales (import desde los test_stepN_real.py)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def debug_acumulado(transport, settings, prefix: str, *, label: str = "") -> None:
+    """
+    Imprime estado acumulado del transport:
+      - Conexión TCP (si el socket sigue abierto)
+      - Qué credencial Telnet fue la exitosa
+      - Último response recibido del ONT
+    Tolerante a socket cerrado (post-reset).
+    """
+    header = f"[{prefix}]" + (f" {label}" if label else "")
+    print(f"\n{header} -- debug acumulado --")
+
+    if transport._sock is not None:
+        try:
+            peer = transport._sock.getpeername()
+            local = transport._sock.getsockname()
+            print(f"[{prefix}] TCP : {local[0]}:{local[1]} -> {peer[0]}:{peer[1]}")
+        except Exception:
+            print(f"[{prefix}] TCP : socket presente pero getpeername() fallo")
+    else:
+        print(f"[{prefix}] TCP : socket cerrado (esperado tras send_reset)")
+
+    if transport._credentials_used:
+        _, _, pair = transport._credentials_used
+        all_creds = settings["login_telnet_candidates"]["huawei"]
+        for i, cred in enumerate(all_creds, 1):
+            marker = "  <- EXITOSA" if i == pair else ""
+            print(f"[{prefix}] cred {i}) {cred['user']}/{cred['pass']}{marker}")
+    else:
+        print(f"[{prefix}] cred: ninguna registrada aun")
+
+    if transport._last_response is not None:
+        snippet = repr(transport._last_response.strip()[-300:])
+        print(f"[{prefix}] last: {snippet}")
+    else:
+        print(f"[{prefix}] last: (sin response aun)")
+
+    print(f"[{prefix}] --")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Fixtures de Step 2 — Telnet real (post-reboot de Step 1)
+# Cada fixture crea su propio socket dentro del módulo test_step2_real.py.
+# ──────────────────────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def telnet_creds_step2(telnet_creds_step1):
+    """Step 2 usa la misma tupla dual que Step 1 (admin_123 → adminHW)."""
+    return telnet_creds_step1
+
+
+@pytest.fixture(scope="module")
+def socket_abierto_step2(ont_ip):
+    """Conexion TCP fresca al :23 (Step 2 inicia aqui)."""
+    transport = HuaweiFullLockedTransport(host=ont_ip, port=23, timeout_s=10.0)
+    transport.connect()
+    yield transport
+    transport.close()
+    print(f"\n[STEP 2] Socket TCP cerrado (teardown fixture)")
+
+
+@pytest.fixture(scope="module")
+def socket_logueado_step2(socket_abierto_step2, telnet_creds_step2):
+    """Sesion Telnet autenticada (dual login completado)."""
+    socket_abierto_step2.login(telnet_creds_step2)
+    return socket_abierto_step2
+
+
+@pytest.fixture(scope="module")
+def socket_con_led_step2(socket_logueado_step2):
+    """Post-login con 'set led switch on' enviado."""
+    socket_logueado_step2.send_command("set led switch on")
+    return socket_logueado_step2
+
+
+@pytest.fixture(scope="module")
+def socket_en_su_step2(socket_con_led_step2):
+    """Dentro del prompt SU_WAP tras ejecutar 'su'."""
+    socket_con_led_step2.send_command("su", expect="SU_WAP", wait_s=2.0)
+    return socket_con_led_step2
+
+
+@pytest.fixture(scope="module")
+def socket_en_shell_step2(socket_en_su_step2):
+    """Dentro del shell Dopra Linux tras ejecutar 'shell'."""
+    socket_en_su_step2.send_command("shell", expect="WAP(Dopra Linux)", wait_s=2.0)
+    return socket_en_su_step2
+
+
+@pytest.fixture(scope="module")
+def socket_equipmode_step2(socket_en_shell_step2):
+    """EquipMode.sh on ejecutado dentro del shell BusyBox."""
+    socket_en_shell_step2.send_command("EquipMode.sh on", wait_s=3.0)
+    return socket_en_shell_step2

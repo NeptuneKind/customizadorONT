@@ -31,7 +31,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "chrome_binary_path": ""
     },
     "login_telnet_candidates": {
-        "huawei": [{"user": "root", "pass": "adminHW"}, {"user": "root", "pass": "admin"}, {"user": "root", "pass": "admin_123"}],
+        "huawei": [{"user": "root", "pass": "admin_123"}, {"user": "root", "pass": "adminHW"}, {"user": "root", "pass": "admin"}],
     }
 }
 

@@ -10,6 +10,16 @@ from config.logging import get_logger
 
 log = get_logger("TRANSPORT")
 
+# ── Matriz de credenciales por paso (dual login: pair_1 primario → pair_2 fallback) ──
+#
+# Paso esperado   | pair 1           | pair 2           | Si entra con pair 1    | Si entra con pair 2
+# ----------------+------------------+------------------+------------------------+-------------------------
+# Step 1 / Step 2 | root/admin_123   | root/adminHW     | estado normal 1-2      | Step 2 ya aplicado o parcial → reejecutar defensivamente
+# Step 3          | root/admin       | root/admin_123   | estado normal post-2   | (raro) equipo regresó a estado previo
+# Step 4          | root/adminHW     | root/admin       | estado normal post-3   | (raro) Step 3 no aplicó fully
+#
+# Usar `infer_step_from_credentials(transport)` para leer esta matriz de forma programática.
+
 # ── Telnet control bytes ─────────────────────────────────────────────
 _IAC  = 255
 _DO   = 253
@@ -112,7 +122,7 @@ class HuaweiFullLockedTransport:
             timeout_s=10.0,
         )
         lower = response.lower()
-        if "incorrect" in lower or "denied" in lower or "failed" in lower:
+        if any(k in lower for k in ("incorrect", "denied", "failed", "wrong")):
             raise RuntimeError(
                 f"Authentication failed for user '{username}'"
             )
@@ -328,9 +338,11 @@ class HuaweiFullLockedTransport:
 
             text = self._buf.decode("ascii", errors="replace")
             for marker in markers:
-                if marker in text:
-                    self._buf = b""
-                    return text
+                idx = text.find(marker)
+                if idx != -1:
+                    end = idx + len(marker)
+                    self._buf = self._buf[end:]
+                    return text[:end]
 
         raise TimeoutError(
             f"Expected one of {markers!r} not seen within {timeout_s}s "
@@ -407,3 +419,54 @@ def _process_iac(buf: bytes) -> tuple[bytes, bytes]:
             i += 2  # Unknown 2-byte sequence — skip
 
     return bytes(output), bytes(replies)
+
+
+# =====================================================================
+# State inference from successful Telnet credentials
+# =====================================================================
+
+def infer_step_from_credentials(transport: "HuaweiFullLockedTransport") -> dict:
+    """
+    Mapea la credencial Telnet que funcionó al paso más probable en el que
+    está el ONT. Ver matriz arriba del módulo.
+
+    Retorna dict con:
+      - likely_step: int (1..4) o None si no hay info
+      - confidence: 'high' | 'medium' | 'low'
+      - note: explicación legible
+      - credentials_used: (user, pass, pair_number) o None
+    """
+    used = transport._credentials_used
+    if used is None:
+        return {
+            "likely_step": None,
+            "confidence": "low",
+            "note": "Aún no se hizo login — sin información de estado",
+            "credentials_used": None,
+        }
+
+    user, password, pair = used
+    key = (user, password)
+
+    if key == ("root", "admin_123"):
+        note = "pair 1 de Step 1/2 — equipo en estado normal pre/intra steps 1-2"
+        likely, conf = 1, "high"
+    elif key == ("root", "adminHW"):
+        note = (
+            "pair 2 de Step 1/2 (fallback) — Step 2 posiblemente ya aplicado o parcial; "
+            "reejecutar Step 2 de forma defensiva"
+        )
+        likely, conf = 2, "medium"
+    elif key == ("root", "admin"):
+        note = "pair 1 de Step 3 — equipo en estado normal post-Step 2"
+        likely, conf = 3, "high"
+    else:
+        note = f"credencial desconocida {user!r} — no se puede inferir paso"
+        likely, conf = None, "low"
+
+    return {
+        "likely_step": likely,
+        "confidence": conf,
+        "note": note,
+        "credentials_used": used,
+    }

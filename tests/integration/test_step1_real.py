@@ -25,22 +25,13 @@ Cómo correr:
 """
 import pytest
 
+from tests.integration.conftest import debug_acumulado as _debug_acumulado_shared
+
 pytestmark = pytest.mark.integration
 
 
 def _debug_acumulado(transport, settings):
-    """Imprime estado acumulado: TCP + credencial exitosa + última respuesta del ONT."""
-    peer = transport._sock.getpeername()
-    local = transport._sock.getsockname()
-    print(f"\n[STEP 1] Conexión TCP: {local[0]}:{local[1]} → {peer[0]}:{peer[1]}")
-    if transport._credentials_used:
-        _, _, pair = transport._credentials_used
-        all_creds = settings["login_telnet_candidates"]["huawei"]
-        for i, cred in enumerate(all_creds, 1):
-            marker = " ✓ EXITOSA" if i == pair else ""
-            print(f"[STEP 1]   cred {i}) {cred['user']}/{cred['pass']}{marker}")
-    if transport._last_response is not None:
-        print(f"[STEP 1] Último response: {repr(transport._last_response.strip())}")
+    _debug_acumulado_shared(transport, settings, "STEP 1")
 
 
 def test_01_abrir_socket(socket_abierto, settings, ont_ip):
