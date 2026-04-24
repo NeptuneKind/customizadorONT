@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSettings
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -31,8 +31,8 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Customizador ONT")
-        self.resize(1440, 900)
         self.setMinimumSize(1200, 760)
+        self.showMaximized()
 
         self.app_state = AppState() # Se crea una instancia del estado de la aplicación, que se compartirá entre las diferentes vistas
         self.settings = QSettings("CustomizadorONT", "CustomizadorONT")
@@ -78,13 +78,12 @@ class MainWindow(QMainWindow):
         #     "background: #243041; border-radius: 46px; font-weight: 700;"
         # )
         self.sidebar_logo = QLabel()
+        self.sidebar_logo.setObjectName("sidebarLogo")
         self.sidebar_logo.setFixedSize(92, 92)
         self.sidebar_logo.setAlignment(Qt.AlignCenter)
-        self.sidebar_logo.setStyleSheet(
-            "background: #243041; border-radius: 46px;"
-        )
 
         logo_path = Path(__file__).resolve().parent / "assets" / "logo_RAM_ONT.png"
+        #logo_path = Path(__file__).resolve().parent / "assets" / "logoRAM_backgroundless.png"
         if logo_path.exists():
             pixmap = QPixmap(str(logo_path))
             if not pixmap.isNull():
@@ -95,14 +94,15 @@ class MainWindow(QMainWindow):
                     Qt.SmoothTransformation,
                 )
                 self.sidebar_logo.setPixmap(scaled)
+                self.setWindowIcon(QIcon(pixmap))
         else:
             self.sidebar_logo.setText("LOGO")
 
         self.customization_button = QPushButton("Customización") # Botón para mostrar la vista de ejecución, que es la vista principal de la aplicación
         self.customization_button.clicked.connect(lambda: self.show_view("execution"))
 
-        self.descustomization_button = QPushButton("Descustomización") # Botón para mostrar la vista de ejecución, que es la vista principal de la aplicación
-        self.descustomization_button.clicked.connect(lambda: self.show_view("dexecution"))
+        # self.descustomization_button = QPushButton("Descustomización")
+        # self.descustomization_button.clicked.connect(lambda: self.show_view("dexecution"))
 
         self.settings_button = QPushButton("Configuración") # Botón para mostrar la vista de configuración, que permite al usuario modificar las opciones de la aplicación
         self.settings_button.clicked.connect(lambda: self.show_view("settings"))
@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(self.sidebar_logo, 0, Qt.AlignHCenter)
         sidebar_layout.addSpacing(10)
         sidebar_layout.addWidget(self.customization_button)
-        sidebar_layout.addWidget(self.descustomization_button)
+        # sidebar_layout.addWidget(self.descustomization_button)
         sidebar_layout.addWidget(self.settings_button)
         sidebar_layout.addStretch(1)
 
@@ -184,8 +184,12 @@ class MainWindow(QMainWindow):
         self.app_state.set_theme_mode(self.app_state.theme_mode)
         self.settings.setValue("ui/theme_mode", self.app_state.theme_mode)
         self.setStyleSheet(get_app_style(self.app_state.theme_mode))
+        if self.app_state.theme_mode == "dark":
+            self.sidebar_logo.setStyleSheet("background: #243041; border-radius: 46px;")
+        else:
+            self.sidebar_logo.setStyleSheet("background: #C8E6EC; border-radius: 46px;")
         self._refresh_button_style(self.customization_button)
-        self._refresh_button_style(self.descustomization_button)
+        # self._refresh_button_style(self.descustomization_button)
         self._refresh_button_style(self.settings_button)
 
     # Método para mostrar una vista específica en el área de contenido principal
@@ -196,31 +200,29 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentWidget(self.main_view)
 
             self.customization_button.setProperty("active", True)
-            self.descustomization_button.setProperty("active", False)
+            # self.descustomization_button.setProperty("active", False)
             self.settings_button.setProperty("active", False)
 
             self.main_view.refresh_from_state()
 
-        elif view_name == "dexecution":
-            self.stack.setCurrentWidget(self.main_view)
-
-            self.customization_button.setProperty("active", False)
-            self.descustomization_button.setProperty("active", True)
-            self.settings_button.setProperty("active", False)
-
-            self.main_view.refresh_from_state()
+        # elif view_name == "dexecution":
+        #     self.stack.setCurrentWidget(self.main_view)
+        #     self.customization_button.setProperty("active", False)
+        #     self.descustomization_button.setProperty("active", True)
+        #     self.settings_button.setProperty("active", False)
+        #     self.main_view.refresh_from_state()
 
         else:
             self.stack.setCurrentWidget(self.settings_view)
 
             self.customization_button.setProperty("active", False)
-            self.descustomization_button.setProperty("active", False)
+            # self.descustomization_button.setProperty("active", False)
             self.settings_button.setProperty("active", True)
 
             self.settings_view.refresh_from_state()
 
         self._refresh_button_style(self.customization_button)
-        self._refresh_button_style(self.descustomization_button)
+        # self._refresh_button_style(self.descustomization_button)
         self._refresh_button_style(self.settings_button)
 
     # Método para mostrar una vista específica en el área de contenido principal, y actualizar el estado de los botones de navegación en la barra lateral
@@ -258,12 +260,12 @@ class MainWindow(QMainWindow):
     def _apply_sidebar_texts(self, expanded: bool) -> None:
         if expanded:
             self.customization_button.setText("Customizacion")
-            self.descustomization_button.setText("Descustomizacion")
+            # self.descustomization_button.setText("Descustomizacion")
             self.settings_button.setText("Configuracion")
             self.collapse_button.setText("<<")
         else:
             self.customization_button.setText("CC")
-            self.descustomization_button.setText("DC")
+            # self.descustomization_button.setText("DC")
             self.settings_button.setText("C")
             self.collapse_button.setText(">>")
 

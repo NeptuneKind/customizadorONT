@@ -163,6 +163,25 @@ QCheckBox::indicator:checked {{
     border: 1px solid {accent};
 }}
 
+QCheckBox#subCheck {{
+    spacing: 8px;
+    font-size: 13px;
+    color: {text_muted};
+}}
+
+QCheckBox#subCheck::indicator {{
+    width: 13px;
+    height: 13px;
+    border-radius: 3px;
+    border: 1px solid {checkbox_border};
+    background: {checkbox_bg};
+}}
+
+QCheckBox#subCheck::indicator:checked {{
+    background: {accent};
+    border: 1px solid {accent};
+}}
+
 QScrollArea#leftPlansScroll QScrollBar:vertical {{
     background: transparent;
     width: 12px;
@@ -206,6 +225,41 @@ QScrollArea#settingsScroll {{
 QWidget#settingsScrollViewport {{
     background: transparent;
 }}
+
+QScrollArea#settingsScroll QScrollBar:vertical {{
+    background: transparent;
+    width: 12px;
+    margin: 6px 2px 6px 2px;
+    border: none;
+}}
+
+QScrollArea#settingsScroll QScrollBar::handle:vertical {{
+    background: {scroll_handle};
+    min-height: 36px;
+    border-radius: 6px;
+    border: 1px solid {scroll_handle_border};
+}}
+
+QScrollArea#settingsScroll QScrollBar::handle:vertical:hover {{
+    background: {scroll_handle_hover};
+}}
+
+QScrollArea#settingsScroll QScrollBar::add-line:vertical,
+QScrollArea#settingsScroll QScrollBar::sub-line:vertical {{
+    height: 0px;
+    border: none;
+    background: transparent;
+}}
+
+QScrollArea#settingsScroll QScrollBar::add-page:vertical,
+QScrollArea#settingsScroll QScrollBar::sub-page:vertical {{
+    background: transparent;
+}}
+
+QScrollArea#settingsScroll QScrollBar:horizontal {{
+    height: 0px;
+    background: transparent;
+}}
 """
 
 LIGHT_THEME = _STYLE_TEMPLATE.format(
@@ -214,15 +268,15 @@ LIGHT_THEME = _STYLE_TEMPLATE.format(
     text_muted="#6C757D",
     help_text="#317ACF",
     sidebar_bg="#F5F9FA",
-    border_color="#DCE6EA",
+    border_color="#A8C4CE",
     card_bg="#FFFFFF",
     button_bg="#FFFFFF",
-    button_border="#CFE0E5",
+    button_border="#96B8C5",
     button_hover="#F1FBFC",
     button_hover_border="#3DC1CC",
     accent="#00968F",
     input_bg="#FFFFFF",
-    input_border="#DCE6EA",
+    input_border="#A8C4CE",
     input_focus_border="#CADFF7",
     input_disabled_bg="#F4F7F8",
     input_disabled_text="#98A6AE",

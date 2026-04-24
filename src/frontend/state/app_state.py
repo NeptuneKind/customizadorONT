@@ -25,6 +25,7 @@ class ExecutionState:
     model_code: str = "--"
     selected_slot: Optional[int] = None
     calculated_ip: str = ""
+    ip_custom: bool = False
     wifi: PlanState = field(default_factory=PlanState)
     web_credentials: PlanState = field(default_factory=PlanState)
     ip_plan: PlanState = field(default_factory=PlanState)
