@@ -74,8 +74,7 @@ class ViewHeader(QWidget):
         right_layout.setAlignment(Qt.AlignRight | Qt.AlignTop)
 
         self.theme_title = QLabel("Tema")
-        self.theme_title.setStyleSheet("font-size: 18px; font-weight: 500;")
-        self.theme_title.setProperty("muted", True)
+        self.theme_title.setStyleSheet("font-size: 18px; font-weight: 700;")
         self.theme_title.setAlignment(Qt.AlignRight)
 
         self.theme_row = QWidget()

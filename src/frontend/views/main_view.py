@@ -6,6 +6,7 @@ from typing import Callable
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QGridLayout,
     QHBoxLayout,
@@ -17,7 +18,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.frontend.animations import animate_collapsible, DURATION_STANDARD
 from src.frontend.state.app_state import AppState
+from src.frontend.validators import (
+    validate_alphanumeric,
+    validate_huawei_password,
+    validate_ipv4,
+    validate_wifi_password_zte,
+)
 from src.frontend.widgets.theme_slider import ThemeSlider
 from src.frontend.widgets.view_header import ViewHeader
 from src.frontend.widgets.ip_slot_selector import IPSlotSelector
@@ -179,10 +187,13 @@ class MainView(QWidget):
         note.setProperty("muted", True)
         note.setWordWrap(True)
 
-        self.wifi_ssid_24 = LabeledEntry("SSID 2.4 GHz")
-        self.wifi_password_24 = LabeledEntry("Password 2.4 GHz")
-        self.wifi_ssid_5 = LabeledEntry("SSID 5 GHz")
-        self.wifi_password_5 = LabeledEntry("Password 5 GHz")
+        username_for_wifi = lambda: self.app_state.standard_settings.web_actual_user
+        wifi_pwd_validator = lambda v: validate_wifi_password_zte(v, username_for_wifi())
+
+        self.wifi_ssid_24 = LabeledEntry("SSID 2.4 GHz", validator=validate_alphanumeric)
+        self.wifi_password_24 = LabeledEntry("Password 2.4 GHz", validator=wifi_pwd_validator)
+        self.wifi_ssid_5 = LabeledEntry("SSID 5 GHz", validator=validate_alphanumeric)
+        self.wifi_password_5 = LabeledEntry("Password 5 GHz", validator=wifi_pwd_validator)
 
         self.wifi_card.fields_layout.addWidget(note)
         self.wifi_card.fields_layout.addWidget(self.wifi_ssid_24)
@@ -201,8 +212,12 @@ class MainView(QWidget):
         note.setProperty("muted", True)
         note.setWordWrap(True)
 
+        web_pwd_validator = lambda v: validate_huawei_password(
+            v, self.app_state.standard_settings.web_actual_user
+        )
+
         self.web_old_password = LabeledEntry("Password actual")
-        self.web_new_password = LabeledEntry("Password nueva")
+        self.web_new_password = LabeledEntry("Password nueva", validator=web_pwd_validator)
 
         self.web_card.fields_layout.addWidget(note)
         self.web_card.fields_layout.addWidget(self.web_old_password)
@@ -213,6 +228,16 @@ class MainView(QWidget):
 
     # Método para construir los campos específicos del plan IP dentro de su tarjeta de sección, y agregarlos al layout correspondiente
     def _build_ip_fields(self) -> None:
+        self.ip_custom_check = QCheckBox("IP custom")
+        self.ip_custom_check.setObjectName("subCheck")
+        self.ip_custom_check.toggled.connect(self._on_ip_custom_toggled)
+
+        # Contenedor colapsable: nota + selector de ONTs (visible cuando ip_custom=False)
+        self.ip_matrix_container = QWidget()
+        matrix_layout = QVBoxLayout(self.ip_matrix_container)
+        matrix_layout.setContentsMargins(0, 0, 0, 0)
+        matrix_layout.setSpacing(8)
+
         note = QLabel(
             "Selecciona solo un equipo. La IP a aplicar se calculará automáticamente."
         )
@@ -224,10 +249,18 @@ class MainView(QWidget):
             rows=4,
             columns=6,
         )
-        self.calculated_ip_entry = LabeledEntry("IP a aplicar", readonly=True)
 
-        self.ip_card.fields_layout.addWidget(note)
-        self.ip_card.fields_layout.addWidget(self.ip_selector)
+        matrix_layout.addWidget(note)
+        matrix_layout.addWidget(self.ip_selector)
+
+        self.calculated_ip_entry = LabeledEntry(
+            "IP a aplicar", readonly=True, validator=validate_ipv4
+        )
+        self.calculated_ip_entry.set_validation_enabled(False)
+        self.calculated_ip_entry.entry.textChanged.connect(self._on_custom_ip_text_changed)
+
+        self.ip_card.fields_layout.addWidget(self.ip_custom_check)
+        self.ip_card.fields_layout.addWidget(self.ip_matrix_container)
         self.ip_card.fields_layout.addWidget(self.calculated_ip_entry)
 
         self.ip_card.add_field_widget(self.ip_selector)
@@ -263,10 +296,43 @@ class MainView(QWidget):
             self.app_state.execution.web_credentials.enabled = False
         else:
             self._clear_ip_selection_log()
+            self.app_state.execution.ip_custom = False
 
         self._apply_plan_rules()
         self.app_state.rebuild_plan_logs()
         self.refresh_from_state()
+
+    # Handler para el checkbox "IP custom": oculta/muestra la matriz de ONTs y cambia el modo del campo IP
+    def _on_ip_custom_toggled(self, custom: bool) -> None:
+        self.app_state.execution.ip_custom = custom
+
+        if custom:
+            # Limpiar selección de slot y habilitar el campo IP para escritura libre
+            self.app_state.execution.selected_slot = None
+            self.app_state.execution.calculated_ip = ""
+            self.ip_selector.clear_selection()
+            self.calculated_ip_entry.set("")
+            self.calculated_ip_entry.set_readonly(False)
+            self.calculated_ip_entry.set_validation_enabled(True)
+            self._clear_ip_selection_log()
+            self._set_ip_custom_mode_log()
+            self._set_custom_ip_log("")
+        else:
+            # Volver a modo matriz: campo IP readonly hasta que se seleccione un slot
+            self.app_state.execution.calculated_ip = ""
+            self.calculated_ip_entry.set("")
+            self.calculated_ip_entry.set_readonly(True)
+            self.calculated_ip_entry.set_validation_enabled(False)
+            self._clear_ip_custom_logs()
+
+        animate_collapsible(self.ip_matrix_container, collapsed=custom, duration=DURATION_STANDARD)
+
+    # Handler para el cambio de texto en el campo IP custom: actualiza el log dinámicamente
+    def _on_custom_ip_text_changed(self, text: str) -> None:
+        if self.app_state.execution.ip_custom:
+            self.app_state.execution.calculated_ip = text
+            self._set_custom_ip_log(text)
+            self._render_logs()
 
     # Handler para la selección de una ranura de ONT en el plan IP, que actualiza el estado de la aplicación con la ranura seleccionada, calcula un valor de IP placeholder basado en la ranura seleccionada, actualiza el campo de IP calculada con ese valor, y agrega un mensaje al log visual
     def _on_ip_slot_selected(self, slot_number: int | None) -> None:
@@ -306,10 +372,22 @@ class MainView(QWidget):
         self.wifi_card.set_fields_enabled(execution.wifi.fields_enabled)
         self.web_card.set_fields_enabled(execution.web_credentials.fields_enabled)
         self.ip_card.set_fields_enabled(execution.ip_plan.fields_enabled)
-        self.ip_selector.set_enabled(execution.ip_plan.fields_enabled)
+        self.ip_selector.set_enabled(execution.ip_plan.fields_enabled and not execution.ip_custom)
+
+        # Sync ip_custom checkbox sin disparar señales
+        self.ip_custom_check.blockSignals(True)
+        self.ip_custom_check.setChecked(execution.ip_custom)
+        self.ip_custom_check.blockSignals(False)
+        self.ip_custom_check.setEnabled(execution.ip_plan.fields_enabled)
+
+        # Matrix container visible solo cuando ip_custom=False
+        ip_custom = execution.ip_custom
+        self.ip_matrix_container.setVisible(not ip_custom)
+        if not ip_custom:
+            self.ip_matrix_container.setMaximumHeight(16777215)
 
         self.calculated_ip_entry.set(execution.calculated_ip)
-        self.calculated_ip_entry.set_readonly(True)
+        self.calculated_ip_entry.set_readonly(not execution.ip_custom)
 
         self.stepper.set_device_info(
             vendor=execution.vendor,
@@ -359,6 +437,7 @@ class MainView(QWidget):
         self.app_state.execution.ip_plan.enabled = False
         self.app_state.execution.selected_slot = None
         self.app_state.execution.calculated_ip = ""
+        self.app_state.execution.ip_custom = False
 
         self.app_state.sync_plan_rules()
         self.app_state.clear_all_logs()
@@ -371,6 +450,12 @@ class MainView(QWidget):
         self.web_old_password.clear()
         self.web_new_password.clear()
         self.ip_selector.clear_selection()
+        self.ip_custom_check.blockSignals(True)
+        self.ip_custom_check.setChecked(False)
+        self.ip_custom_check.blockSignals(False)
+        self.ip_matrix_container.setVisible(True)
+        self.ip_matrix_container.setMaximumHeight(16777215)
+        self.calculated_ip_entry.set_readonly(True)
         self.stepper.reset()
 
         self._append_log("[UI] Formulario limpiado")
@@ -413,3 +498,28 @@ class MainView(QWidget):
         self.app_state.execution.logs.clear()
         self.log_box.clear()
         self._append_log(message)
+
+    def _set_ip_custom_mode_log(self) -> None:
+        prefix = "[UI] Modo IP custom:"
+        self.app_state.execution.process_logs = [
+            log for log in self.app_state.execution.process_logs if not log.startswith(prefix)
+        ]
+        self.app_state.execution.process_logs.append(f"{prefix} activado")
+        self._render_logs()
+
+    def _set_custom_ip_log(self, ip: str) -> None:
+        prefix = "[UI] IP a aplicar:"
+        self.app_state.execution.process_logs = [
+            log for log in self.app_state.execution.process_logs if not log.startswith(prefix)
+        ]
+        self.app_state.execution.process_logs.append(
+            f"{prefix} {ip}" if ip else f"{prefix} (pendiente)"
+        )
+        self._render_logs()
+
+    def _clear_ip_custom_logs(self) -> None:
+        for prefix in ("[UI] Modo IP custom:", "[UI] IP a aplicar:"):
+            self.app_state.execution.process_logs = [
+                log for log in self.app_state.execution.process_logs if not log.startswith(prefix)
+            ]
+        self._render_logs()

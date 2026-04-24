@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.frontend.state.app_state import AppState
+from src.frontend.validators import validate_huawei_password, validate_ipv4
 from src.frontend.widgets.labeled_entry import LabeledEntry
 from src.frontend.widgets.section_card import SectionCard
 from src.frontend.widgets.view_header import ViewHeader
@@ -82,8 +83,14 @@ class SettingsView(QWidget):
         body_layout.addWidget(self.access_card, 0, 0)
         body_layout.addWidget(self.web_card, 0, 1)
 
-        self.brand_ip_huawei_fiber = LabeledEntry("IP base Huawei / FiberHome")
-        self.brand_ip_zte = LabeledEntry("IP base ZTE")
+        self.brand_ip_huawei_fiber = LabeledEntry(
+            "IP base Huawei / FiberHome", validator=validate_ipv4
+        )
+        self.brand_ip_zte = LabeledEntry("IP base ZTE", validator=validate_ipv4)
+
+        for entry in (self.brand_ip_huawei_fiber, self.brand_ip_zte):
+            entry.label.setStyleSheet("font-size: 15px;")
+            entry.entry.setStyleSheet("font-size: 15px;")
 
         self.access_card.body_layout.addWidget(self.brand_ip_huawei_fiber)
         self.access_card.body_layout.addWidget(self.brand_ip_zte)
@@ -92,9 +99,18 @@ class SettingsView(QWidget):
         self.web_actual_user = LabeledEntry("Username", readonly=True)
         self.web_actual_user.set_readonly(True)
         self.web_actual_user_note = QLabel("Este valor esta bloqueado por firmware y no puede modificarse.")
-        self.web_actual_user_note.setStyleSheet("color: #D9534F; font-size: 11px; font-weight: 600;")
+        self.web_actual_user_note.setStyleSheet("color: #D9534F; font-size: 13px; font-weight: 600;")
         self.web_actual_user_note.setWordWrap(True)
-        self.web_actual_password = LabeledEntry("Password actual")
+        self.web_actual_password = LabeledEntry(
+            "Password actual",
+            validator=lambda v: validate_huawei_password(
+                v, self.app_state.standard_settings.web_actual_user
+            ),
+        )
+
+        for entry in (self.web_actual_user, self.web_actual_password):
+            entry.label.setStyleSheet("font-size: 15px;")
+            entry.entry.setStyleSheet("font-size: 15px;")
 
         self.web_card.body_layout.addWidget(self.web_actual_user)
         self.web_card.body_layout.addWidget(self.web_actual_user_note)
@@ -134,6 +150,7 @@ class SettingsView(QWidget):
         scroll_content_layout.addStretch(1)
 
         self.scroll = QScrollArea()
+        self.scroll.setObjectName("settingsScroll")
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QScrollArea.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
