@@ -424,10 +424,10 @@ class HuaweiAdapter:
                 "Esperando estabilización post-Apply Huawei",
                 {
                     "new_ip": new_ip,
-                    "wait_s": 2.0,
+                    "wait_s": 6.0,
                 },
             )
-            time.sleep(2.0)
+            time.sleep(6.0)
 
             self._emit(
                 progress,
@@ -464,25 +464,49 @@ class HuaweiAdapter:
                 },
             )
 
-            verification_navigator.wait_until_login_accessible_on_new_ip(
-                new_ip=new_ip,
-                timeout_s=20,
-                retry_every_s=0.75,
-            )
+            # Verificación no-fatal: si el equipo no es accesible en la nueva subred (e.g. PC en subred distinta),
+            # el cambio de IP ya fue aplicado exitosamente — registrar como advertencia, no como error.
+            try:
+                verification_navigator.wait_until_login_accessible_on_new_ip(
+                    new_ip=new_ip,
+                    timeout_s=45,
+                )
 
-            verification_navigator.login_for_verification(
-                username="root",
-                password="admin",
-            )
+                login_candidates = (ctx.settings.get("login_candidates") or {}).get("huawei") or [{"user": "root", "pass": "admin"}]
+                login_ok = False
+                for cand in login_candidates:
+                    try:
+                        verification_navigator.login_for_verification(
+                            username=str(cand.get("user", "root")),
+                            password=str(cand.get("pass", "admin")),
+                        )
+                        login_ok = True
+                        break
+                    except Exception:
+                        pass
 
-            self._emit(
-                progress,
-                "IP",
-                "Cerrando sesión de verificación Huawei",
-                {"new_ip": new_ip},
-            )
+                if login_ok:
+                    self._emit(
+                        progress,
+                        "IP",
+                        "Cerrando sesión de verificación Huawei",
+                        {"new_ip": new_ip},
+                    )
+                    try:
+                        verification_navigator.logout()
+                    except Exception:
+                        pass
+                else:
+                    result.steps.append({
+                        "step": "ip_verification_warning",
+                        "data": {"warning": "IP aplicada pero login en nueva IP no confirmado"},
+                    })
 
-            verification_navigator.logout()
+            except Exception as verify_exc:
+                result.steps.append({
+                    "step": "ip_verification_warning",
+                    "data": {"warning": f"IP aplicada. Verificación en nueva IP no confirmada: {verify_exc}"},
+                })
 
         finally:
             try:

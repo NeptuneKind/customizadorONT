@@ -577,92 +577,34 @@ class HuaweiNavigator:
     def wait_until_login_accessible_on_new_ip(
         self,
         new_ip: str,
-        timeout_s: int = 20,
-        retry_every_s: float = 0.75,
-        per_attempt_wait_s: float = 1.5,
+        timeout_s: int = 45,
+        retry_every_s: float = 1.0,
     ) -> None:
+        _LOGIN_SELECTORS = [
+            (By.ID, "txt_Username"),
+            (By.NAME, "txt_Username"),
+            (By.ID, "txt_Password"),
+            (By.NAME, "txt_Password"),
+            (By.ID, "loginbutton"),
+            (By.NAME, "loginbutton"),
+        ]
         target_url = f"http://{str(new_ip).strip()}"
         end_time = time.time() + timeout_s
         last_error: Optional[Exception] = None
-        first_attempt = True
 
         while time.time() < end_time:
             attempt_start = time.time()
-
             try:
                 self._switch_to_default()
 
-                # Cortar cualquier navegación previa atorada
                 try:
                     self.driver.execute_script("window.stop();")
                 except Exception:
                     pass
 
-                # NO usar driver.get() como motor principal del retry.
-                # Simulamos más el comportamiento de cambiar la URL en la pestaña actual.
+                # driver.get es más confiable desde una pestaña en blanco — fuerza navegación completa
                 try:
-                    self.driver.execute_script(
-                        "window.location.replace(arguments[0]);",
-                        target_url,
-                    )
-                except Exception as exc:
-                    last_error = exc
-
-                # Dar una ventana corta para que la navegación haga commit
-                time.sleep(per_attempt_wait_s)
-
-                # Si ya cambió la URL o ya apareció el login, damos por bueno
-                try:
-                    current_url = (self.driver.current_url or "").strip().lower()
-                except Exception:
-                    current_url = ""
-
-                if target_url.lower() in current_url:
-                    try:
-                        self.find_element_anywhere(
-                            selectors=[
-                                (By.ID, "txt_Username"),
-                                (By.NAME, "txt_Username"),
-                                (By.ID, "txt_Password"),
-                                (By.NAME, "txt_Password"),
-                                (By.ID, "loginbutton"),
-                                (By.NAME, "loginbutton"),
-                            ],
-                            desc="pantalla de login Huawei en nueva IP",
-                            timeout_s=1,
-                            must_be_displayed=False,
-                        )
-                        return
-                    except Exception as exc:
-                        last_error = exc
-                else:
-                    # Aunque current_url no haya cambiado visualmente,
-                    # probar si el DOM del login ya existe
-                    try:
-                        self.find_element_anywhere(
-                            selectors=[
-                                (By.ID, "txt_Username"),
-                                (By.NAME, "txt_Username"),
-                                (By.ID, "txt_Password"),
-                                (By.NAME, "txt_Password"),
-                                (By.ID, "loginbutton"),
-                                (By.NAME, "loginbutton"),
-                            ],
-                            desc="pantalla de login Huawei en nueva IP",
-                            timeout_s=1,
-                            must_be_displayed=False,
-                        )
-                        return
-                    except Exception as exc:
-                        last_error = exc
-
-                # Fallback: solo si el primer mecanismo no reaccionó
-                try:
-                    self.driver.set_page_load_timeout(2)
-                except Exception:
-                    pass
-
-                try:
+                    self.driver.set_page_load_timeout(5)
                     self.driver.get(target_url)
                 except Exception as exc:
                     last_error = exc
@@ -672,23 +614,13 @@ class HuaweiNavigator:
                     except Exception:
                         pass
 
-                try:
-                    self.find_element_anywhere(
-                        selectors=[
-                            (By.ID, "txt_Username"),
-                            (By.NAME, "txt_Username"),
-                            (By.ID, "txt_Password"),
-                            (By.NAME, "txt_Password"),
-                            (By.ID, "loginbutton"),
-                            (By.NAME, "loginbutton"),
-                        ],
-                        desc="pantalla de login Huawei en nueva IP",
-                        timeout_s=1,
-                        must_be_displayed=False,
-                    )
-                    return
-                except Exception as exc:
-                    last_error = exc
+                self.find_element_anywhere(
+                    selectors=_LOGIN_SELECTORS,
+                    desc="pantalla de login Huawei en nueva IP",
+                    timeout_s=3,
+                    must_be_displayed=False,
+                )
+                return
 
             except Exception as exc:
                 last_error = exc
@@ -697,8 +629,6 @@ class HuaweiNavigator:
             remaining = retry_every_s - elapsed
             if remaining > 0:
                 time.sleep(remaining)
-
-            first_attempt = False
 
         raise RuntimeError(
             f"La GUI Huawei no quedó accesible en la nueva IP '{new_ip}' "
@@ -1277,10 +1207,12 @@ class HuaweiNavigator:
             timeout_s=8,
         )
 
+        time.sleep(1.5)  # Wait for LAN Host content panel to load
+
         self.find_element_anywhere( # 3) Verificar encontrando el input con la IP actual
             selectors=self._ip_field_selectors(),
             desc="campo IP Huawei",
-            timeout_s=6,
+            timeout_s=12,
             must_be_displayed=False,
         )
 

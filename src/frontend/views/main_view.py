@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
+from typing import Callable, List, Optional, Tuple
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -34,48 +31,173 @@ from src.frontend.widgets.plan_toggle_card import PlanToggleCard
 from src.frontend.widgets.section_card import SectionCard
 from src.frontend.widgets.status_stepper import StatusStepper
 
-# Clase que representa la vista principal de la aplicación. Muestra el formulario de ejecución y el estado actual del proceso
+# Mapa: fase backend → clave de step en stepper
+_STEP_FOR_PHASE = {
+    "LOGIN": "login",
+    "WIFI": "wifi",
+    "WEB": "web_credentials",
+    "IP": "ip",
+}
+
+# Mapa: step → índice de conector a su izquierda (0=login-wifi, 1=wifi-web, 2=web-ip)
+_CONNECTOR_FOR_STEP = {
+    "wifi": 0,
+    "web_credentials": 1,
+    "ip": 2,
+}
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+
+def _format_progress_log(phase: str, message: str, data: dict) -> Optional[str]:
+    """Convierte un ProgressEvent a una línea de log amigable para el usuario.
+    Retorna None si el evento es interno y no debe mostrarse."""
+    msg_lower = message.lower()
+
+    if phase == "DETECT":
+        if data.get("vendor"):
+            vendor = data["vendor"].capitalize()
+            product = data.get("product") or data.get("model", "")
+            return f"[DETECTION] ONT {vendor} detectado — {product}"
+        return "[DETECTION] Buscando ONT en la red..."
+
+    if phase == "LOGIN":
+        if "abriendo" in msg_lower:
+            return "[LOGIN] Conectando a la interfaz web del ONT"
+        if "iniciada" in msg_lower:
+            return "[LOGIN] Sesión iniciada correctamente"
+        # No mostrar intentos internos de credenciales
+        return None
+
+    if phase == "WIFI":
+        band = "2.4GHz" if "2.4" in message else "5GHz"
+        if "navegando" in msg_lower:
+            return f"[WIFI] Navegando a configuración WiFi {band}"
+        if "leyendo" in msg_lower:
+            return f"[WIFI] Leyendo información actual WiFi {band}"
+        if "aplicando" in msg_lower:
+            ssid = data.get("ssid")
+            pwd_set = data.get("password_set", False)
+            if ssid and pwd_set:
+                return f"[WIFI] Aplicando SSID y Password WiFi {band} — SSID: {ssid}"
+            if ssid:
+                return f"[WIFI] Aplicando SSID WiFi {band}: {ssid}"
+            if pwd_set:
+                return f"[WIFI] Aplicando Password WiFi {band}"
+            return f"[WIFI] Aplicando cambios WiFi {band}"
+        if "validando" in msg_lower:
+            return f"[WIFI] Validando cambios WiFi {band}"
+        return None
+
+    if phase == "WEB":
+        if "leyendo" in msg_lower:
+            return "[WEB CRED] Navegando a configuración de credenciales"
+        if "aplicando" in msg_lower:
+            return "[WEB CRED] Aplicando nuevo password"
+        if "verificando" in msg_lower:
+            return "[WEB CRED] Verificando acceso con nuevo password"
+        return None
+
+    if phase == "IP":
+        if "leyendo" in msg_lower:
+            return "[IP] Leyendo configuración actual de IP"
+        if "aplicando nueva ip" in msg_lower:
+            new_ip = data.get("new_ip", "")
+            return f"[IP] Aplicando nueva IP: {new_ip}" if new_ip else "[IP] Aplicando nueva IP"
+        if "estabilización" in msg_lower or "estabilizaci" in msg_lower:
+            return "[IP] Esperando estabilización del equipo"
+        if "verificando acceso" in msg_lower or "pestaña" in msg_lower:
+            new_ip = data.get("new_ip", "")
+            return f"[IP] Verificando acceso en la nueva IP{': ' + new_ip if new_ip else ''}"
+        if "esperando acceso" in msg_lower:
+            new_ip = data.get("new_ip", "")
+            return f"[IP] Aguardando respuesta del ONT{' en ' + new_ip if new_ip else ''}"
+        # Cerrar sesión de verificación es detalle interno
+        return None
+
+    if phase == "LOGOUT":
+        return "[LOGIN] Cerrando sesión"
+
+    if phase == "ERROR":
+        return f"[ERROR] {message}"
+
+    return None
+
+
+def _badge_for_event(phase: str, message: str) -> Optional[str]:
+    """Retorna el badge kind correspondiente al evento, o None si no cambia."""
+    msg_lower = message.lower()
+
+    if phase == "DETECT":
+        return "detectando"
+
+    if phase == "LOGIN":
+        return "customizando"
+
+    if phase == "WIFI":
+        if "validando" in msg_lower:
+            return "validando"
+        return "customizando"
+
+    if phase == "WEB":
+        if "verificando" in msg_lower:
+            return "validando"
+        return "customizando"
+
+    if phase == "IP":
+        if any(kw in msg_lower for kw in ("verificando acceso", "esperando acceso", "cerrando sesión")):
+            return "validando"
+        return "customizando"
+
+    return None
+
+
 class MainView(QWidget):
-    # El constructor recibe el estado de la aplicación, que se utilizará para cargar y guardar los valores del formulario y el estado del proceso, y opcionalmente un widget padre
     def __init__(
         self,
         app_state: AppState,
         on_theme_changed: Callable[[], None] | None = None,
-        parent: QWidget | None = None
+        parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.app_state = app_state
         self.on_theme_changed = on_theme_changed
 
-        root = QVBoxLayout(self) # Layout vertical
+        self._current_phase: Optional[str] = None
+        self._worker = None
+
+        root = QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
         root.setSpacing(12)
 
-        #self.header = self._build_header() # Encabezado de la vista, con el título, el logo y el estado general del proceso 
         self.header = ViewHeader(
             app_state=self.app_state,
             section_title="Ejecución de planes",
             section_subtitle="El sistema mostrará aquí el flujo general de customización.",
             on_theme_changed=self.on_theme_changed,
+            on_action_clicked=self._on_start_customization,
         )
         root.addWidget(self.header)
 
-        content = QWidget() # Contenedor para el contenido
+        content = QWidget()
         self.animation_target = content
         content_layout = QHBoxLayout(content)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(12)
 
-        self.left_scroll = self._build_left_panel() # Panel izquierdo con el formulario de ejecución
-        self.right_panel = self._build_right_panel() # Panel derecho con el stepper de estado, las reglas activas y el log visual
+        self.left_scroll = self._build_left_panel()
+        self.right_panel = self._build_right_panel()
 
         content_layout.addWidget(self.left_scroll, 3)
         content_layout.addWidget(self.right_panel, 2)
 
         root.addWidget(content, 1)
-        self.refresh_from_state() # Cargar los valores iniciales
 
-    # Método para construir el panel izquierdo de la vista
+        self._connect_readiness_signals()
+        self.refresh_from_state()
+
+    # ─── Panel izquierdo ────────────────────────────────────────────
+
     def _build_left_panel(self) -> QWidget:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -84,14 +206,8 @@ class MainView(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet(
             """
-            QScrollArea {
-                background: transparent;
-                border: none;
-            }
-            QScrollArea > QWidget > QWidget {
-                background: transparent;
-                border: none;
-            }
+            QScrollArea { background: transparent; border: none; }
+            QScrollArea > QWidget > QWidget { background: transparent; border: none; }
             """
         )
 
@@ -147,23 +263,21 @@ class MainView(QWidget):
         layout.addWidget(self.web_card)
         layout.addWidget(self.ip_card)
         layout.addWidget(self.actions_card)
-
         layout.addStretch(1)
 
         scroll.setWidget(content)
         return scroll
 
-    # Método para construir el panel derecho de la vista
+    # ─── Panel derecho ──────────────────────────────────────────────
+
     def _build_right_panel(self) -> QWidget:
         panel = QWidget()
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(12)
 
-        # CAMBIO NO OPCIONAL: EL STEPPER SE CREA AQUI
         self.stepper = StatusStepper()
 
-        # Card para mostrar el log visual de mensajes del sistema
         self.log_card = SectionCard(
             title="Logs del sistema",
             subtitle="Mensajes de backend y eventos de ejecución",
@@ -173,17 +287,15 @@ class MainView(QWidget):
         self.log_box.setReadOnly(True)
         self.log_card.body_layout.addWidget(self.log_box)
 
-        # CAMBIO NO OPCIONAL: EL PANEL DERECHO SOLO CONTIENE STEPPER Y LOGS
         layout.addWidget(self.stepper, 1)
         layout.addWidget(self.log_card, 1)
 
         return panel
 
-    # Método para construir los campos específicos del plan WiFi dentro de su tarjeta de sección, y agregarlos al layout correspondiente
+    # ─── Campos WiFi ────────────────────────────────────────────────
+
     def _build_wifi_fields(self) -> None:
-        note = QLabel(
-            "Valores contemplados desde configuración."
-        )
+        note = QLabel("Valores contemplados desde configuración.")
         note.setProperty("muted", True)
         note.setWordWrap(True)
 
@@ -206,7 +318,8 @@ class MainView(QWidget):
         self.wifi_card.add_field_widget(self.wifi_ssid_5)
         self.wifi_card.add_field_widget(self.wifi_password_5)
 
-    # Método para construir los campos específicos del plan de credenciales web dentro de su tarjeta de sección, y agregarlos al layout correspondiente
+    # ─── Campos Web Credentials ─────────────────────────────────────
+
     def _build_web_fields(self) -> None:
         note = QLabel("Credenciales contempladas desde la vista de configuración.")
         note.setProperty("muted", True)
@@ -226,21 +339,19 @@ class MainView(QWidget):
         self.web_card.add_field_widget(self.web_old_password)
         self.web_card.add_field_widget(self.web_new_password)
 
-    # Método para construir los campos específicos del plan IP dentro de su tarjeta de sección, y agregarlos al layout correspondiente
+    # ─── Campos IP ──────────────────────────────────────────────────
+
     def _build_ip_fields(self) -> None:
         self.ip_custom_check = QCheckBox("IP custom")
         self.ip_custom_check.setObjectName("subCheck")
         self.ip_custom_check.toggled.connect(self._on_ip_custom_toggled)
 
-        # Contenedor colapsable: nota + selector de ONTs (visible cuando ip_custom=False)
         self.ip_matrix_container = QWidget()
         matrix_layout = QVBoxLayout(self.ip_matrix_container)
         matrix_layout.setContentsMargins(0, 0, 0, 0)
         matrix_layout.setSpacing(8)
 
-        note = QLabel(
-            "Selecciona solo un equipo. La IP a aplicar se calculará automáticamente."
-        )
+        note = QLabel("Selecciona solo un equipo. La IP a aplicar se calculará automáticamente.")
         note.setProperty("muted", True)
         note.setWordWrap(True)
 
@@ -253,9 +364,7 @@ class MainView(QWidget):
         matrix_layout.addWidget(note)
         matrix_layout.addWidget(self.ip_selector)
 
-        self.calculated_ip_entry = LabeledEntry(
-            "IP a aplicar", readonly=True, validator=validate_ipv4
-        )
+        self.calculated_ip_entry = LabeledEntry("IP a aplicar", readonly=True, validator=validate_ipv4)
         self.calculated_ip_entry.set_validation_enabled(False)
         self.calculated_ip_entry.entry.textChanged.connect(self._on_custom_ip_text_changed)
 
@@ -266,48 +375,62 @@ class MainView(QWidget):
         self.ip_card.add_field_widget(self.ip_selector)
         self.ip_card.add_field_widget(self.calculated_ip_entry)
 
-    # Handler para el toggle del plan WiFi, que actualiza el estado de la aplicación, aplica las reglas de exclusividad entre planes, y agrega un mensaje al log visual
+    # ─── Señales de readiness ───────────────────────────────────────
+
+    def _connect_readiness_signals(self) -> None:
+        for entry in (
+            self.wifi_ssid_24, self.wifi_password_24,
+            self.wifi_ssid_5, self.wifi_password_5,
+            self.web_new_password,
+        ):
+            entry.entry.textChanged.connect(self._update_badge_state)
+
+    # ─── Handlers de toggles ────────────────────────────────────────
+
     def _on_wifi_toggle(self, enabled: bool) -> None:
         self.app_state.execution.wifi.enabled = enabled
         if enabled:
             self.app_state.execution.ip_plan.enabled = False
             self._clear_ip_selection_log()
+            self._clear_formulario_limpiado_log()
 
         self._apply_plan_rules()
         self.app_state.rebuild_plan_logs()
+        self._sync_stepper_enabled_states()
         self.refresh_from_state()
 
-    # Handler para el toggle del plan de credenciales web, que actualiza el estado de la aplicación, aplica las reglas de exclusividad entre planes, y agrega un mensaje al log visual
     def _on_web_toggle(self, enabled: bool) -> None:
         self.app_state.execution.web_credentials.enabled = enabled
         if enabled:
             self.app_state.execution.ip_plan.enabled = False
             self._clear_ip_selection_log()
+            self._clear_formulario_limpiado_log()
 
         self._apply_plan_rules()
         self.app_state.rebuild_plan_logs()
+        self._sync_stepper_enabled_states()
         self.refresh_from_state()
 
-    # Handler para el toggle del plan IP, que actualiza el estado de la aplicación, aplica las reglas de exclusividad entre planes, y agrega un mensaje al log visual
     def _on_ip_toggle(self, enabled: bool) -> None:
         self.app_state.execution.ip_plan.enabled = enabled
         if enabled:
             self.app_state.execution.wifi.enabled = False
             self.app_state.execution.web_credentials.enabled = False
+            self._clear_formulario_limpiado_log()
         else:
             self._clear_ip_selection_log()
+            self._clear_ip_custom_logs()
             self.app_state.execution.ip_custom = False
 
         self._apply_plan_rules()
         self.app_state.rebuild_plan_logs()
+        self._sync_stepper_enabled_states()
         self.refresh_from_state()
 
-    # Handler para el checkbox "IP custom": oculta/muestra la matriz de ONTs y cambia el modo del campo IP
     def _on_ip_custom_toggled(self, custom: bool) -> None:
         self.app_state.execution.ip_custom = custom
 
         if custom:
-            # Limpiar selección de slot y habilitar el campo IP para escritura libre
             self.app_state.execution.selected_slot = None
             self.app_state.execution.calculated_ip = ""
             self.ip_selector.clear_selection()
@@ -318,7 +441,6 @@ class MainView(QWidget):
             self._set_ip_custom_mode_log()
             self._set_custom_ip_log("")
         else:
-            # Volver a modo matriz: campo IP readonly hasta que se seleccione un slot
             self.app_state.execution.calculated_ip = ""
             self.calculated_ip_entry.set("")
             self.calculated_ip_entry.set_readonly(True)
@@ -326,15 +448,15 @@ class MainView(QWidget):
             self._clear_ip_custom_logs()
 
         animate_collapsible(self.ip_matrix_container, collapsed=custom, duration=DURATION_STANDARD)
+        self._update_badge_state()
 
-    # Handler para el cambio de texto en el campo IP custom: actualiza el log dinámicamente
     def _on_custom_ip_text_changed(self, text: str) -> None:
         if self.app_state.execution.ip_custom:
             self.app_state.execution.calculated_ip = text
             self._set_custom_ip_log(text)
             self._render_logs()
+        self._update_badge_state()
 
-    # Handler para la selección de una ranura de ONT en el plan IP, que actualiza el estado de la aplicación con la ranura seleccionada, calcula un valor de IP placeholder basado en la ranura seleccionada, actualiza el campo de IP calculada con ese valor, y agrega un mensaje al log visual
     def _on_ip_slot_selected(self, slot_number: int | None) -> None:
         self.app_state.execution.selected_slot = slot_number
 
@@ -343,27 +465,29 @@ class MainView(QWidget):
             self.calculated_ip_entry.set("")
             self.calculated_ip_entry.set_readonly(True)
             self._clear_ip_selection_log()
+            self._update_badge_state()
             return
-        
-        placeholder_ip = f"192.168.50.{int(slot_number)}" # Si el ID es 01, 02, ..., 09 lo convertimos a 1, 2, ..., 9 para calcular la IP placeholder
 
+        placeholder_ip = f"192.168.50.{int(slot_number)}"
         self.app_state.execution.calculated_ip = placeholder_ip
         self.calculated_ip_entry.set(placeholder_ip)
         self.calculated_ip_entry.set_readonly(True)
         self._set_ip_selection_log(slot_number)
+        self._update_badge_state()
 
-    # Método para aplicar las reglas de exclusividad entre planes, sincronizando el estado de la aplicación y refrescando la vista para reflejar los cambios
     def _apply_plan_rules(self) -> None:
         self.app_state.sync_plan_rules()
 
-    # Método para refrescar la vista con los valores actuales del estado de la aplicación
+    # ─── Refresh ────────────────────────────────────────────────────
+
     def refresh_from_state(self) -> None:
         execution = self.app_state.execution
-        self.web_old_password.set(self.app_state.standard_settings.web_actual_password) # Cargamos el password actual del estado de configuración estándar
-        self.header.refresh_from_state()
+        self.web_old_password.set(self.app_state.standard_settings.web_actual_password)
 
-        if hasattr(self, "theme_slider"):
-            self.theme_slider.set_checked(self.app_state.theme_mode == "dark")
+        if not self.app_state.is_running:
+            self._update_badge_state()
+
+        self.header.refresh_from_state()
 
         self.wifi_card.set_value(execution.wifi.enabled)
         self.web_card.set_value(execution.web_credentials.enabled)
@@ -374,13 +498,11 @@ class MainView(QWidget):
         self.ip_card.set_fields_enabled(execution.ip_plan.fields_enabled)
         self.ip_selector.set_enabled(execution.ip_plan.fields_enabled and not execution.ip_custom)
 
-        # Sync ip_custom checkbox sin disparar señales
         self.ip_custom_check.blockSignals(True)
         self.ip_custom_check.setChecked(execution.ip_custom)
         self.ip_custom_check.blockSignals(False)
         self.ip_custom_check.setEnabled(execution.ip_plan.fields_enabled)
 
-        # Matrix container visible solo cuando ip_custom=False
         ip_custom = execution.ip_custom
         self.ip_matrix_container.setVisible(not ip_custom)
         if not ip_custom:
@@ -395,40 +517,263 @@ class MainView(QWidget):
             model=execution.model_code,
         )
 
-        for step_key, status in execution.progress.items():
-            self.stepper.set_step_status(step_key, status)
+        self._render_logs()
+
+    # ─── Badge / readiness ──────────────────────────────────────────
+
+    def _compute_readiness(self) -> Tuple[str, str]:
+        ex = self.app_state.execution
+        wifi_en = ex.wifi.enabled
+        web_en = ex.web_credentials.enabled
+        ip_en = ex.ip_plan.enabled
+
+        if not (wifi_en or web_en or ip_en):
+            return "idle", "Listo"
+
+        if wifi_en:
+            for entry in (self.wifi_ssid_24, self.wifi_password_24, self.wifi_ssid_5, self.wifi_password_5):
+                if not entry.is_valid():
+                    return "idle", "Listo"
+
+        if web_en:
+            if not self.web_new_password.get():
+                return "idle", "Listo"
+            if not self.web_new_password.is_valid():
+                return "idle", "Listo"
+
+        if ip_en:
+            if ex.ip_custom:
+                if not ex.calculated_ip or not self.calculated_ip_entry.is_valid():
+                    return "idle", "Listo"
+            else:
+                if ex.selected_slot is None:
+                    return "idle", "Listo"
+
+        return "preparado", "Preparado"
+
+    def _update_badge_state(self) -> None:
+        if self.app_state.is_running:
+            return
+        kind, text = self._compute_readiness()
+        self.app_state.set_global_status(text, kind)
+        self.header.refresh_from_state()
+
+    # ─── Stepper circles ────────────────────────────────────────────
+
+    def _sync_stepper_enabled_states(self) -> None:
+        if self.app_state.is_running:
+            return
+        ex = self.app_state.execution
+        any_plan = ex.wifi.enabled or ex.web_credentials.enabled or ex.ip_plan.enabled
+
+        self.stepper.set_step_status("login", "enabled" if any_plan else "pending")
+        self.stepper.set_step_status("wifi", "enabled" if ex.wifi.enabled else "pending")
+        self.stepper.set_step_status("web_credentials", "enabled" if ex.web_credentials.enabled else "pending")
+        self.stepper.set_step_status("ip", "enabled" if ex.ip_plan.enabled else "pending")
+
+        # Conectores en gris hasta que empiece la ejecución
+        for i in range(3):
+            self.stepper.set_connector_status(i, "default")
+
+    # ─── Inicio de customización ────────────────────────────────────
+
+    def _on_start_customization(self) -> None:
+        if self.app_state.is_running:
+            return
+
+        kind, _ = self._compute_readiness()
+        if kind != "preparado":
+            return
+
+        self._start_new_customization_run()
+
+    def _start_new_customization_run(self) -> None:
+        from config.settings import load_or_init_settings
+        from src.backend.customizer.models import CustomizationPlan, WifiPlan, WebCredentialsPlan, IPPlan
+        from src.frontend.worker import CustomizationWorker
+
+        # Limpiar logs del run anterior (sólo process_logs; plan_logs se conservan)
+        self.app_state.execution.process_logs.clear()
+        self._append_log("[CUSTOM] Se inició la customización")
+
+        # Reset stepper
+        ex = self.app_state.execution
+        any_plan = ex.wifi.enabled or ex.web_credentials.enabled or ex.ip_plan.enabled
+        self.stepper.set_step_status("login", "enabled" if any_plan else "pending")
+        self.stepper.set_step_status("wifi", "enabled" if ex.wifi.enabled else "pending")
+        self.stepper.set_step_status("web_credentials", "enabled" if ex.web_credentials.enabled else "pending")
+        self.stepper.set_step_status("ip", "enabled" if ex.ip_plan.enabled else "pending")
+        for i in range(3):
+            self.stepper.set_connector_status(i, "default")
+
+        # Reset device info en stepper
+        self.app_state.execution.vendor = "--"
+        self.app_state.execution.current_ip = "--"
+        self.app_state.execution.model_code = "--"
+        self.stepper.set_device_info("--", "--", "--")
+
+        # Marcar como corriendo
+        self.app_state.is_running = True
+        self._current_phase = None
+        self.app_state.set_global_status("Detectando", "detectando")
+        self.header.refresh_from_state()
+
+        # Construir plan
+        plan = CustomizationPlan(
+            wifi=WifiPlan(
+                enabled=ex.wifi.enabled,
+                ssid_24=self.wifi_ssid_24.get() or None,
+                pass_24=self.wifi_password_24.get() or None,
+                ssid_5=self.wifi_ssid_5.get() or None,
+                pass_5=self.wifi_password_5.get() or None,
+            ),
+            web_credentials=WebCredentialsPlan(
+                enabled=ex.web_credentials.enabled,
+                old_password=self.web_old_password.get() or "admin",
+                new_password=self.web_new_password.get(),
+            ),
+            ip=IPPlan(
+                enabled=ex.ip_plan.enabled,
+                new_ip=ex.calculated_ip,
+            ),
+        )
+
+        # Cargar settings y agregar contraseña actual como candidato de login
+        CONFIG_DIR = _PROJECT_ROOT / "config"
+        settings = load_or_init_settings(PROJECT_ROOT=_PROJECT_ROOT, CONFIG_DIR=CONFIG_DIR)
+
+        current_pwd = self.app_state.standard_settings.web_actual_password
+        if current_pwd:
+            for vendor_key in ("huawei", "zte", "fiber"):
+                candidates = list(settings.get("login_candidates", {}).get(vendor_key, []))
+                new_cand = {"user": "root", "pass": current_pwd}
+                if new_cand not in candidates:
+                    candidates.insert(0, new_cand)
+                settings.setdefault("login_candidates", {})[vendor_key] = candidates
+
+        ips = [
+            self.app_state.standard_settings.brand_ip_huawei_fiber,
+            self.app_state.standard_settings.brand_ip_zte,
+        ]
+
+        self._worker = CustomizationWorker(
+            plan=plan,
+            settings=settings,
+            ips=ips,
+            project_root=_PROJECT_ROOT,
+            parent=self,
+        )
+        self._worker.event_received.connect(self._on_progress_event)
+        self._worker.run_finished.connect(self._on_run_finished)
+        self._worker.start()
+
+    # ─── Progress events ────────────────────────────────────────────
+
+    def _on_progress_event(self, evt) -> None:
+        phase = evt.phase
+        message = evt.message
+        data = evt.data or {}
+
+        # Log amigable
+        log_msg = _format_progress_log(phase, message, data)
+        if log_msg:
+            self._append_log(log_msg)
+
+        # Actualizar device info si llega la detección
+        if phase == "DETECT" and data.get("vendor"):
+            self.app_state.execution.vendor = data["vendor"].capitalize()
+            self.app_state.execution.current_ip = data.get("ip", "--")
+            self.app_state.execution.model_code = data.get("product") or data.get("model", "--")
+            self.stepper.set_device_info(
+                vendor=self.app_state.execution.vendor,
+                current_ip=self.app_state.execution.current_ip,
+                model=self.app_state.execution.model_code,
+            )
+
+        # Badge
+        new_badge = _badge_for_event(phase, message)
+        if new_badge:
+            badge_texts = {
+                "detectando": "Detectando",
+                "customizando": "Customizando",
+                "validando": "Validando",
+            }
+            self.app_state.set_global_status(badge_texts.get(new_badge, new_badge.capitalize()), new_badge)
+            self.header.refresh_from_state()
+
+        # Stepper: completar fase previa y activar la nueva
+        new_step = _STEP_FOR_PHASE.get(phase)
+        prev_step = _STEP_FOR_PHASE.get(self._current_phase) if self._current_phase else None
+
+        if new_step and new_step != prev_step:
+            # Completar el step anterior
+            if prev_step and prev_step != "login":
+                self.stepper.set_step_status(prev_step, "success")
+                conn_idx = _CONNECTOR_FOR_STEP.get(prev_step)
+                if conn_idx is not None:
+                    self.stepper.set_connector_status(conn_idx, "success")
+            elif prev_step == "login":
+                self.stepper.set_step_status("login", "success")
+
+            # Activar step nuevo
+            self.stepper.set_step_status(new_step, "running")
+            conn_idx = _CONNECTOR_FOR_STEP.get(new_step)
+            if conn_idx is not None:
+                self.stepper.set_connector_status(conn_idx, "running")
+
+            self._current_phase = phase
 
         self._render_logs()
 
-    # Método setter para establecer la ruta del logo en el encabezado, cargando la imagen desde el archivo y actualizando el widget
-    def set_logo_path(self, logo_path: str | Path) -> None:
-        # logo_path = Path(logo_path)
-        # if not logo_path.exists():
-        #     self._append_log(f"[UI] Logo no encontrado: {logo_path}")
-        #     return
+    def _on_run_finished(self, ok: bool, errors: list) -> None:
+        self.app_state.is_running = False
 
-        # pixmap = QPixmap(str(logo_path))
-        # if pixmap.isNull():
-        #     self._append_log(f"[UI] No se pudo cargar el logo: {logo_path}")
-        #     return
+        ex = self.app_state.execution
+        wifi_en = ex.wifi.enabled
+        web_en = ex.web_credentials.enabled
+        ip_en = ex.ip_plan.enabled
 
-        # scaled = pixmap.scaled(
-        #     64,
-        #     64,
-        #     Qt.KeepAspectRatioByExpanding,
-        #     Qt.SmoothTransformation,
-        # )
-        # self.logo_container.setPixmap(scaled)
-        # self.logo_container.setText("")
-        return
+        # Finalizar el step activo
+        active_step = _STEP_FOR_PHASE.get(self._current_phase) if self._current_phase else None
+        if active_step:
+            final_step_status = "success" if ok else "error"
+            self.stepper.set_step_status(active_step, final_step_status)
+            conn_idx = _CONNECTOR_FOR_STEP.get(active_step)
+            if conn_idx is not None:
+                self.stepper.set_connector_status(conn_idx, final_step_status)
 
-    # Handler para el botón de inicio. TODO: En el futuro se conectará con la lógica de backend para iniciar el proceso de customización
-    def _on_start_clicked(self) -> None:
-        self.app_state.clear_process_logs()
-        self._append_log("[UI] Inicio de customizacion solicitado")
+        # Login siempre termina (si llegamos hasta aquí)
+        if ok:
+            self.stepper.set_step_status("login", "success")
 
-    # Handler para el botón de limpiar, que restablece el estado de la aplicación a los valores iniciales
+        # Determinar badge final
+        if ok:
+            badge_kind = "finalizado"
+            badge_text = "Finalizado"
+            self._append_log("[CUSTOM] Customización completada con éxito")
+        elif wifi_en and web_en and not ip_en:
+            # Único caso multi-plan: incompleto si solo uno falló
+            badge_kind = "incompleto"
+            badge_text = "Incompleto"
+            self._append_log("[CUSTOM] Customización completada parcialmente")
+        else:
+            badge_kind = "error"
+            badge_text = "Error"
+            self._append_log("[CUSTOM] La customización encontró errores")
+            if errors:
+                self._append_log(f"[ERROR] {errors[0]}")
+
+        self.app_state.set_global_status(badge_text, badge_kind)
+        self.header.refresh_from_state()
+        self._current_phase = None
+        self._render_logs()
+
+    # ─── Clear ──────────────────────────────────────────────────────
+
     def _on_clear_clicked(self) -> None:
+        if self.app_state.is_running:
+            return
+
         self.app_state.execution.current_ip = "--"
         self.app_state.execution.model_code = "--"
         self.app_state.execution.vendor = "--"
@@ -461,43 +806,35 @@ class MainView(QWidget):
         self._append_log("[UI] Formulario limpiado")
         self.refresh_from_state()
 
-    # Método para agregar un mensaje al log visual, y también guardarlo en el estado de la aplicación
+    def set_logo_path(self, logo_path: str | Path) -> None:
+        return
+
+    # ─── Logs helpers ───────────────────────────────────────────────
+
     def _append_log(self, message: str) -> None:
         self.app_state.append_log(message)
         self._render_logs()
 
-    # Método para renderizar el log visual
     def _render_logs(self) -> None:
         self.log_box.setPlainText("\n".join(self.app_state.get_visible_logs()))
+        self.log_box.verticalScrollBar().setValue(self.log_box.verticalScrollBar().maximum())
 
-    # Método para limpiar el mensaje de selección de equipo IP del log visual
     def _clear_ip_selection_log(self) -> None:
         prefix = "[UI] Equipo IP seleccionado:"
         self.app_state.execution.process_logs = [
-            log
-            for log in self.app_state.execution.process_logs
+            log for log in self.app_state.execution.process_logs
             if not log.startswith(prefix)
         ]
         self._render_logs()
 
-    # Método para establecer un mensaje de selección de equipo IP en el log visual
     def _set_ip_selection_log(self, slot_number: int) -> None:
         prefix = "[UI] Equipo IP seleccionado:"
         self.app_state.execution.process_logs = [
-            log
-            for log in self.app_state.execution.process_logs
+            log for log in self.app_state.execution.process_logs
             if not log.startswith(prefix)
         ]
-        self.app_state.execution.process_logs.append(
-            f"{prefix} ONT {slot_number:02d}"
-        )
+        self.app_state.execution.process_logs.append(f"{prefix} ONT {slot_number:02d}")
         self._render_logs()
-
-    # Método para limpiar el log visual, eliminando los mensajes del estado de la aplicación y del widget
-    def _replace_logs_with(self, message: str) -> None:
-        self.app_state.execution.logs.clear()
-        self.log_box.clear()
-        self._append_log(message)
 
     def _set_ip_custom_mode_log(self) -> None:
         prefix = "[UI] Modo IP custom:"
@@ -522,4 +859,11 @@ class MainView(QWidget):
             self.app_state.execution.process_logs = [
                 log for log in self.app_state.execution.process_logs if not log.startswith(prefix)
             ]
+        self._render_logs()
+
+    def _clear_formulario_limpiado_log(self) -> None:
+        prefix = "[UI] Formulario limpiado"
+        self.app_state.execution.process_logs = [
+            log for log in self.app_state.execution.process_logs if not log.startswith(prefix)
+        ]
         self._render_logs()

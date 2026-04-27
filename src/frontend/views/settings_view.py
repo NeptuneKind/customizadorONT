@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.frontend.state.app_state import AppState
-from src.frontend.validators import validate_huawei_password, validate_ipv4
+from src.frontend.validators import validate_ipv4
 from src.frontend.widgets.labeled_entry import LabeledEntry
 from src.frontend.widgets.section_card import SectionCard
 from src.frontend.widgets.view_header import ViewHeader
@@ -101,12 +101,7 @@ class SettingsView(QWidget):
         self.web_actual_user_note = QLabel("Este valor esta bloqueado por firmware y no puede modificarse.")
         self.web_actual_user_note.setStyleSheet("color: #D9534F; font-size: 13px; font-weight: 600;")
         self.web_actual_user_note.setWordWrap(True)
-        self.web_actual_password = LabeledEntry(
-            "Password actual",
-            validator=lambda v: validate_huawei_password(
-                v, self.app_state.standard_settings.web_actual_user
-            ),
-        )
+        self.web_actual_password = LabeledEntry("Password actual")
 
         for entry in (self.web_actual_user, self.web_actual_password):
             entry.label.setStyleSheet("font-size: 15px;")

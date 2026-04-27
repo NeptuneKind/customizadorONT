@@ -110,40 +110,104 @@ QLabel[muted="true"] {{
     color: {help_text};
 }}
 
-QLabel[badge="pending"] {{
-    background: {badge_pending_bg};
+QPushButton[badge="idle"] {{
+    background: {badge_idle_bg};
     color: #FFFFFF;
+    border: none;
     border-radius: 12px;
     padding: 8px 16px;
     font-size: 14px;
     font-weight: 700;
 }}
 
-QLabel[badge="running"] {{
-    background: {badge_running_bg};
+QPushButton[badge="preparado"] {{
+    background: {badge_preparado_bg};
     color: #FFFFFF;
+    border: 2px solid {badge_preparado_border};
     border-radius: 12px;
     padding: 8px 16px;
     font-size: 14px;
     font-weight: 700;
 }}
 
-QLabel[badge="success"] {{
-    background: {badge_success_bg};
+QPushButton[badge="preparado"]:hover {{
+    background: {badge_preparado_hover};
+    border: 2px solid {badge_preparado_border};
+}}
+
+QPushButton[badge="detectando"] {{
+    background: {badge_detectando_bg};
     color: #FFFFFF;
+    border: none;
     border-radius: 12px;
     padding: 8px 16px;
     font-size: 14px;
     font-weight: 700;
 }}
 
-QLabel[badge="error"] {{
+QPushButton[badge="customizando"] {{
+    background: {badge_customizando_bg};
+    color: #1A1A1A;
+    border: none;
+    border-radius: 12px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 700;
+}}
+
+QPushButton[badge="validando"] {{
+    background: {badge_validando_bg};
+    color: #FFFFFF;
+    border: none;
+    border-radius: 12px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 700;
+}}
+
+QPushButton[badge="finalizado"] {{
+    background: {badge_finalizado_bg};
+    color: #FFFFFF;
+    border: 2px solid {badge_finalizado_border};
+    border-radius: 12px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 700;
+}}
+
+QPushButton[badge="finalizado"]:hover {{
+    background: {badge_finalizado_hover};
+    border: 2px solid {badge_finalizado_border};
+}}
+
+QPushButton[badge="error"] {{
     background: {badge_error_bg};
     color: #FFFFFF;
+    border: 2px solid {badge_error_border};
     border-radius: 12px;
     padding: 8px 16px;
     font-size: 14px;
     font-weight: 700;
+}}
+
+QPushButton[badge="error"]:hover {{
+    background: {badge_error_hover};
+    border: 2px solid {badge_error_border};
+}}
+
+QPushButton[badge="incompleto"] {{
+    background: {badge_incompleto_bg};
+    color: #1A1A1A;
+    border: 2px solid {badge_incompleto_border};
+    border-radius: 12px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 700;
+}}
+
+QPushButton[badge="incompleto"]:hover {{
+    background: {badge_incompleto_hover};
+    border: 2px solid {badge_incompleto_border};
 }}
 
 QCheckBox {{
@@ -292,10 +356,22 @@ LIGHT_THEME = _STYLE_TEMPLATE.format(
     slot_unselected_bg="#FFFFFF",
     slot_unselected_border="#B7C8CE",
     slot_unselected_hover="#F3FBFC",
-    badge_pending_bg="#6C757D",
-    badge_running_bg="#317ACF",
-    badge_success_bg="#00968F",
-    badge_error_bg="#D9534F",
+    badge_idle_bg="#6C757D",
+    badge_preparado_bg="#00968F",
+    badge_preparado_border="#00B5AD",
+    badge_preparado_hover="#00B5AD",
+    badge_detectando_bg="#317ACF",
+    badge_customizando_bg="#F59E0B",
+    badge_validando_bg="#3B82F6",
+    badge_finalizado_bg="#22C55E",
+    badge_finalizado_border="#16A34A",
+    badge_finalizado_hover="#16A34A",
+    badge_error_bg="#EF4444",
+    badge_error_border="#DC2626",
+    badge_error_hover="#DC2626",
+    badge_incompleto_bg="#F59E0B",
+    badge_incompleto_border="#D97706",
+    badge_incompleto_hover="#D97706",
 )
 
 DARK_THEME = _STYLE_TEMPLATE.format(
@@ -328,10 +404,22 @@ DARK_THEME = _STYLE_TEMPLATE.format(
     slot_unselected_bg="#0D1C28",
     slot_unselected_border="#34515F",
     slot_unselected_hover="#112432",
-    badge_pending_bg="#6C757D",
-    badge_running_bg="#317ACF",
-    badge_success_bg="#00968F",
-    badge_error_bg="#D9534F",
+    badge_idle_bg="#6C757D",
+    badge_preparado_bg="#00968F",
+    badge_preparado_border="#00B5AD",
+    badge_preparado_hover="#00B5AD",
+    badge_detectando_bg="#317ACF",
+    badge_customizando_bg="#F59E0B",
+    badge_validando_bg="#3B82F6",
+    badge_finalizado_bg="#22C55E",
+    badge_finalizado_border="#16A34A",
+    badge_finalizado_hover="#16A34A",
+    badge_error_bg="#EF4444",
+    badge_error_border="#DC2626",
+    badge_error_hover="#DC2626",
+    badge_incompleto_bg="#F59E0B",
+    badge_incompleto_border="#D97706",
+    badge_incompleto_hover="#D97706",
 )
 
 APP_STYLE = LIGHT_THEME
