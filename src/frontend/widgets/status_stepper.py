@@ -5,55 +5,60 @@ from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLay
 
 from src.frontend.widgets.section_card import SectionCard
 
-# Diccionario que asigna un color a cada estado posible de una etapa del proceso
 STATUS_COLORS = {
     "pending": "#64748B",
-    "running": "#38BDF8",
-    "success": "#22C55E",
+    "enabled": "#00968F",   # accent teal: plan habilitado pero sin correr aún
+    "running": "#F59E0B",   # amarillo: aplicando
+    "success": "#22C55E",   # verde: éxito
     "warning": "#F59E0B",
-    "error": "#EF4444",
+    "error": "#EF4444",     # rojo: error
     "skipped": "#94A3B8",
 }
 
-# Clase que representa un componente de interfaz para mostrar el progreso de varias etapas de un proceso, utilizando indicadores visuales para cada etapa y conectores entre ellos
+CONNECTOR_COLORS = {
+    "default": "#334155",
+    "running": "#F59E0B",   # amarillo: aplicando el plan del círculo siguiente
+    "success": "#22C55E",   # verde: éxito en plan del círculo derecho
+    "error": "#EF4444",     # rojo: error en plan del círculo derecho
+}
+
+
 class StepIndicator(QWidget):
-    # El constructor recibe el texto de la etiqueta para la etapa, y opcionalmente un widget padre
-    # Se crea un indicador circular para mostrar el estado de la etapa, y una etiqueta debajo del indicador para mostrar el texto de la etapa
     def __init__(self, label_text: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        layout = QVBoxLayout(self) # Se crea un layout vertical para organizar el indicador y la etiqueta
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
         layout.setAlignment(Qt.AlignHCenter)
 
-        self.circle = QLabel() # Se crea un QLabel para representar el indicador circular, y se le asigna un estilo para que tenga forma de círculo y un color de fondo inicial
+        self.circle = QLabel()
         self.circle.setFixedSize(24, 24)
         self.circle.setStyleSheet("background: #64748B; border-radius: 12px;")
 
-        self.label = QLabel(label_text) # Se crea una etiqueta para mostrar el texto de la etapa
+        self.label = QLabel(label_text)
         self.label.setAlignment(Qt.AlignCenter)
 
-        # Se agregan el indicador circular y la etiqueta al layout
         layout.addWidget(self.circle, alignment=Qt.AlignHCenter)
         layout.addWidget(self.label)
 
-    # Método setter para actualizar el estado del indicador circular, cambiando su color de fondo
     def set_status(self, status: str) -> None:
         color = STATUS_COLORS.get(status, "#64748B")
         self.circle.setStyleSheet(f"background: {color}; border-radius: 12px;")
 
-# Clase que representa un componente de interfaz para mostrar el progreso general de varias etapas de un proceso, utilizando varios indicadores de etapa y conectores entre ellos, y que hereda de SectionCard para tener un diseño consistente con otras secciones de la aplicación
+
 class Connector(QFrame):
-    # El constructor crea un conector visual entre los indicadores de etapa, que es una línea horizontal con un estilo específico
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setFixedHeight(4)
-        self.setStyleSheet("background: #334155; border-radius: 2px;")
+        self.set_status("default")
 
-# Clase que representa un componente de interfaz para mostrar el progreso general de varias etapas de un proceso, utilizando varios indicadores de etapa y conectores entre ellos
+    def set_status(self, status: str) -> None:
+        color = CONNECTOR_COLORS.get(status, "#334155")
+        self.setStyleSheet(f"background: {color}; border-radius: 2px;")
+
+
 class StatusStepper(SectionCard):
-    # El constructor recibe opcionalmente un widget padre, y crea varios indicadores de etapa para mostrar el progreso de cada etapa del proceso
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
             title="Progreso",
@@ -68,9 +73,9 @@ class StatusStepper(SectionCard):
         self.body_layout.setContentsMargins(0, 2, 0, 0)
         self.body_layout.setSpacing(12)
 
-        self.steps: dict[str, StepIndicator] = {} # Se crea un diccionario para almacenar los indicadores de etapa
+        self.steps: dict[str, StepIndicator] = {}
+        self.connectors: list[Connector] = []
 
-        # Se crea un widget para mostrar información del equipo detectado por el customizador
         self.info_widget = QWidget()
         self.info_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
         self.info_layout = QGridLayout(self.info_widget)
@@ -111,45 +116,49 @@ class StatusStepper(SectionCard):
 
         self.body_layout.addWidget(self.info_widget, 1)
 
-        container = QWidget() # Se crea un contenedor para organizar los indicadores de etapa y los conectores entre ellos
+        container = QWidget()
         container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        layout = QHBoxLayout(container) # Metemos el contenedor en un layout horizontal
+        layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
         layout.setAlignment(Qt.AlignCenter)
 
-        ordered_steps = [ # Se define una lista con el orden de las etapas del proceso, cada una con una clave y un texto para mostrar en la etiqueta
+        ordered_steps = [
             ("login", "Login"),
             ("wifi", "WiFi"),
             ("web_credentials", "Credenciales web"),
             ("ip", "IP"),
         ]
 
-        for index, (step_key, step_label) in enumerate(ordered_steps): # Por cada etapa en la lista, se crea un indicador de etapa y se agrega al layout, y si no es la última etapa, se agrega un conector después del indicador
+        for index, (step_key, step_label) in enumerate(ordered_steps):
             step_widget = StepIndicator(step_label)
             self.steps[step_key] = step_widget
             layout.addWidget(step_widget, 1)
 
             if index < len(ordered_steps) - 1:
                 connector = Connector()
+                self.connectors.append(connector)
                 layout.addWidget(connector, 1)
 
         self.body_layout.addWidget(container, 1)
 
-    # Método setter para actualizar el estado de una etapa específica, cambiando el color del indicador correspondiente
     def set_step_status(self, step_key: str, status: str) -> None:
         if step_key not in self.steps:
             return
         self.steps[step_key].set_status(status)
 
-    # Método setter para actualizar la información del equipo detectado por el customizador
+    def set_connector_status(self, index: int, status: str) -> None:
+        if 0 <= index < len(self.connectors):
+            self.connectors[index].set_status(status)
+
     def set_device_info(self, vendor: str = "--", current_ip: str = "--", model: str = "--") -> None:
         self.ip_value.setText(current_ip or "--")
         self.vendor_value.setText(vendor or "--")
         self.model_value.setText(model or "--")
-    
-    # Método para reiniciar el estado de todas las etapas a "pending"
+
     def reset(self) -> None:
         self.set_device_info("--", "--", "--")
         for step_key in self.steps:
             self.steps[step_key].set_status("pending")
+        for connector in self.connectors:
+            connector.set_status("default")

@@ -41,43 +41,41 @@ class ExecutionState:
     plan_logs: List[str] = field(default_factory=list)
     process_logs: List[str] = field(default_factory=list)
 
-# Dataclass principal para representar el estado global de la aplicación, con campos para el estado de ejecución y el estado de configuración estándar, y métodos para agregar logs y sincronizar las reglas del plan
+_VALID_STATUS_KINDS = {
+    "idle", "preparado", "detectando", "customizando",
+    "validando", "finalizado", "error", "incompleto",
+}
+
+# Dataclass principal para representar el estado global de la aplicación
 @dataclass
 class AppState:
     execution: ExecutionState = field(default_factory=ExecutionState)
     standard_settings: StandardSettingsState = field(default_factory=StandardSettingsState)
-    theme_mode: str = "light"  # Puede ser "light" o "dark"
+    theme_mode: str = "light"
     global_status_text: str = "Listo"
-    global_status_kind: str = "pending"
+    global_status_kind: str = "idle"
+    is_running: bool = False
 
-    # Método para cambiar el modo de tema de la aplicación
     def set_theme_mode(self, theme_mode: str) -> None:
         self.theme_mode = "dark" if theme_mode == "dark" else "light"
 
-    # Método para actualizar el estado global de la aplicación
-    def set_global_status(self, text: str, kind: str = "pending") -> None:
-        valid_kinds = {"pending", "running", "success", "error"}
+    def set_global_status(self, text: str, kind: str = "idle") -> None:
         self.global_status_text = text or "Listo"
-        self.global_status_kind = kind if kind in valid_kinds else "pending"
-    
-    # Método para reiniciar los valores de configuración estándar a sus valores por defecto
+        self.global_status_kind = kind if kind in _VALID_STATUS_KINDS else "idle"
+
     def reset_standard_settings_to_defaults(self) -> None:
         self.standard_settings = StandardSettingsState()
 
-    # Método para agregar un mensaje al log de ejecución
     def append_log(self, message: str) -> None:
         self.execution.process_logs.append(message)
 
-    # Método para agregar un mensaje al log del plan
     def clear_process_logs(self) -> None:
         self.execution.process_logs.clear()
 
-    # Método para limpiar todos los logs (tanto de plan como de proceso)
     def clear_all_logs(self) -> None:
         self.execution.plan_logs.clear()
         self.execution.process_logs.clear()
 
-    # Método para reconstruir el log del plan en función de las secciones habilitadas actualmente
     def rebuild_plan_logs(self) -> None:
         logs: List[str] = []
 
@@ -91,11 +89,9 @@ class AppState:
 
         self.execution.plan_logs = logs
 
-    # Método para obtener todos los logs visibles, combinando los logs del plan y del proceso
     def get_visible_logs(self) -> List[str]:
         return [*self.execution.plan_logs, *self.execution.process_logs]
 
-    # Método para sincronizar las reglas de habilitación de campos en función de qué secciones del plan están activas
     def sync_plan_rules(self) -> None:
         wifi_enabled = self.execution.wifi.enabled
         web_enabled = self.execution.web_credentials.enabled

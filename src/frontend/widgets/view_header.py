@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Callable
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from src.frontend.state.app_state import AppState
 from src.frontend.widgets.section_card import SectionCard
@@ -17,20 +17,19 @@ class ViewHeader(QWidget):
         section_title: str,
         section_subtitle: str,
         on_theme_changed: Callable[[], None] | None = None,
+        on_action_clicked: Callable[[], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.app_state = app_state
         self.on_theme_changed = on_theme_changed
+        self.on_action_clicked = on_action_clicked
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        card = SectionCard(
-            title="",
-            subtitle="",
-        )
+        card = SectionCard(title="", subtitle="")
         card.title_label.setVisible(False)
         card.subtitle_label.setVisible(False)
         card.body_layout.setContentsMargins(0, 0, 0, 0)
@@ -97,9 +96,9 @@ class ViewHeader(QWidget):
         theme_row_layout.addWidget(self.theme_slider)
         theme_row_layout.addWidget(self.theme_dark_label)
 
-        self.status_badge = QLabel()
-        self.status_badge.setAlignment(Qt.AlignCenter)
-        self.status_badge.setMinimumSize(88, 42)
+        self.status_badge = QPushButton()
+        self.status_badge.setMinimumSize(100, 42)
+        self.status_badge.clicked.connect(self._on_badge_clicked)
 
         right_layout.addWidget(self.theme_title, 0, Qt.AlignRight | Qt.AlignTop)
         right_layout.addWidget(self.theme_row, 0, Qt.AlignRight | Qt.AlignTop)
@@ -117,9 +116,14 @@ class ViewHeader(QWidget):
 
     def _on_theme_toggled(self, checked: bool) -> None:
         self.app_state.set_theme_mode("dark" if checked else "light")
-
         if self.on_theme_changed is not None:
             self.on_theme_changed()
+
+    def _on_badge_clicked(self) -> None:
+        if self.app_state.is_running:
+            return
+        if self.on_action_clicked is not None:
+            self.on_action_clicked()
 
     def refresh_from_state(self) -> None:
         self.theme_slider.set_checked(self.app_state.theme_mode == "dark")

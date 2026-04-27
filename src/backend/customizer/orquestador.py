@@ -34,6 +34,16 @@ def run_customization(
     progress(ProgressEvent(phase="DETECT", message="Esperando dispositivo en la red..."))
     ip = wait_for_device_ip(ips, overall_timeout_s=overall_timeout_s)
     detected = detect_vendor_and_model(ip)
+    progress(ProgressEvent(
+        phase="DETECT",
+        message="Dispositivo identificado",
+        data={
+            "vendor": detected.vendor,
+            "model": detected.model_code,
+            "ip": ip,
+            "product": detected.product_name,
+        },
+    ))
 
     # Fase de personalización: construir el driver, crear el contexto y aplicar el plan con el adaptador correspondiente
     driver = build_chrome_driver(settings=settings, headless=headless, project_root=project_root)
